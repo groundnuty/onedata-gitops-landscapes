@@ -1,0 +1,59 @@
+# Root Application for Harbor, the cluster-singleton platform app
+# (it.178/179/183). Applied individually (`make harbor-deploy`), same
+# "no auto-discovery root Application" discipline as every landscape's
+# own root Application -- see the top-level README's
+# "applications/platform/ vs applications/landscapes/" section.
+#
+# SEQUENCING: applying this manifest requires Argo CD to already exist
+# (`make argocd-install`) -- it is an Argo `Application` custom
+# resource, so the argoproj.io CRDs (and the argocd-application-
+# controller actually watching for it) must already be live on the
+# cluster. There is no other ordering requirement versus any landscape:
+# Harbor is independent of every landscape's own lifecycle (that is the
+# whole point of "cluster-singleton" -- see
+# applications/platform/README.md), so `make harbor-deploy` can run
+# before, after, or interleaved with any `make deploy-landscape` call,
+# as long as it runs after `make argocd-install`.
+#
+# GATED, same as sv-posix-multinode-v1.yaml: this manifest is
+# schema-valid and dry-run-clean today (see `make validate`); it is NOT
+# yet applied to k8s-one. Deploys stay gated on the maintainer's
+# ordered sequence (see the top-level README's "Mandatory deploy
+# sequence").
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: onedata-gitops-argocd
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/groundnuty/onedata-gitops-landscapes.git
+    targetRevision: master
+    path: platform/harbor
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: onedata-gitops-harbor
+  syncPolicy:
+    # Deliberately NO automated.prune / automated.selfHeal for v1, same
+    # safety call as every landscape's root Application: a platform
+    # app's first version syncs only when explicitly told to.
+    syncOptions:
+      - CreateNamespace=false # platform/harbor/namespace.yaml (wave -1) creates it
+  ignoreDifferences:
+    # Harbor's own core/jobservice components legitimately rewrite
+    # several ConfigMap/Secret-adjacent fields at runtime (e.g. internal
+    # DB migration bookkeeping) that are out of scope to enumerate
+    # exhaustively here; the one entry that DOES matter structurally:
+    # the Job this platform app ships (config/job.yaml) is intentionally
+    # re-created (deleted then re-applied), never live-mutated, by
+    # `make harbor-configure` -- so no ignoreDifferences entry is
+    # needed for it either; Argo just sees "still matches git" between
+    # harbor-configure invocations.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas # Harbor's own components don't autoscale in v1, but leave room for a manual kubectl scale during debugging without Argo fighting it

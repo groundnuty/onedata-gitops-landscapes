@@ -1,0 +1,51 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Harbor, the cluster-singleton platform app (it.178/179/183). Ordered
+# by argocd.argoproj.io/sync-wave annotations baked into each manifest,
+# same convention as every landscapes/<name>/<version>/:
+#
+#   wave -1  namespace.yaml                     the namespace itself
+#   wave  0  secrets.yaml                       demo admin + dev-robot creds
+#   wave  0  harbor-configure-script (generated) the config-as-code script
+#   wave  0  vendor/harbor-1.18.4-rendered.yaml  the vendored `helm template` output
+#   wave  1  config/job.yaml                     one-shot config-as-code Job (registries/projects/robot)
+#
+# A kustomize `namespace:` transformer IS needed here, SAME reason as
+# argocd/: `helm template --namespace onedata-gitops-harbor` bakes
+# `metadata.namespace` into 28 of the chart's 29 rendered resources
+# (via each template's own `{{ .Release.Namespace }}` reference) --
+# but harbor/templates/nginx/service.yaml (the NodePort Service named
+# "harbor") is the one exception, verified by rendering: it omits
+# `metadata.namespace` entirely (a chart quirk/inconsistency, not
+# something we're choosing to rely on). The transformer below is the
+# belt-and-suspenders fix for that one gap, applied uniformly (it is a
+# no-op for the 28 resources that already had the right value, and
+# cluster-scoped Namespace kind is unaffected by kustomize's
+# transformer regardless).
+namespace: onedata-gitops-harbor
+
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - vendor/harbor-1.18.4-rendered.yaml
+  - config/job.yaml
+
+# Generates the config/configure-harbor.sh ConfigMap from the single
+# source-of-truth script file (no hand-duplicated inline copy -- see
+# config/job.yaml's CAVEAT comment for why a content-hash-suffixed name
+# is actually the RIGHT behavior here, not just a kustomize default:
+# it guarantees the Job's mounted script always matches exactly what
+# was last applied, and forces the "Job spec is immutable" issue to
+# surface at apply time rather than silently mounting stale content).
+configMapGenerator:
+  - name: harbor-configure-script
+    namespace: onedata-gitops-harbor
+    files:
+      - configure-harbor.sh=config/configure-harbor.sh
+    options:
+      labels:
+        app.kubernetes.io/part-of: onedata-gitops-landscapes
+        platform-app: harbor
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"

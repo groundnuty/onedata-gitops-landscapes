@@ -1,0 +1,92 @@
+# Wave 1 (after the chart's wave-0 resources report Healthy -- Argo's
+# native Deployment/StatefulSet health checks already gate this without
+# any custom Lua, unlike the onedata.org CRDs elsewhere in this repo):
+# runs config/configure-harbor.sh (mounted from the configMapGenerator-
+# produced ConfigMap, see kustomization.yaml) against Harbor's own
+# in-cluster Service DNS name.
+#
+# CAVEAT (read before editing this file): a Kubernetes Job's
+# spec.template is IMMUTABLE post-creation. Re-syncing this exact,
+# unchanged manifest is a harmless no-op `kubectl apply`, but the
+# instant the mounted ConfigMap's content-hash changes (any edit to
+# configure-harbor.sh) OR this file's own spec changes, a plain re-sync
+# will fail with "field is immutable". `make harbor-configure` (see the
+# top-level Makefile) is the supported way to pick up either kind of
+# change: it deletes the existing Job first, then re-applies, so the
+# next Pod always runs against current content. Argo's own periodic
+# resync will NOT do this for you.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-configure-projects
+  namespace: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400 # keep a day's worth of logs around for `kubectl logs`; not relied on for correctness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: onedata-gitops-landscapes
+        platform-app: harbor
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configure-harbor
+          # alpine/k8s bundles curl+jq+bash (kubectl/helm unused here,
+          # but this is the well-known, actively-maintained image for
+          # exactly this "small cluster-side automation script" shape;
+          # pinned to the tag matching this cluster's kubectl version,
+          # 1.36.2, confirmed to exist on Docker Hub at build time).
+          image: alpine/k8s:1.36.2
+          command: ["/bin/bash", "/scripts/configure-harbor.sh"]
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HARBOR_URL
+              value: http://harbor.onedata-gitops-harbor.svc.cluster.local
+            - name: HARBOR_ADMIN_USER
+              value: admin
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-admin-secret
+                  key: HARBOR_ADMIN_PASSWORD
+            - name: ROBOT_SHORT_NAME
+              value: large-dev-push
+            - name: ROBOT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-dev-robot
+                  key: password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: harbor-configure-script # kustomize configMapGenerator rewrites this to the hashed name automatically
+            defaultMode: 0o555
+        - name: tmp
+          emptyDir: {}

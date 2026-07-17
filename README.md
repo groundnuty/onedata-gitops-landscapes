@@ -71,6 +71,7 @@ Argo-managed.
 ```
 argocd/                       dedicated-namespace Argo CD install + health/ignoreDifferences config
 crds/                          the ONE shared, cluster-scoped CRD set (superset/latest)
+platform/harbor/               cluster-singleton Harbor (proxy-cache + dev push target; it.178/179/183)
 landscapes/<name>/<version>/   a full hermetic landscape's manifests, wave-annotated
 applications/
   platform/                   cluster-SINGLETON Argo apps (one per cluster; see below)
@@ -81,14 +82,17 @@ scripts/                      operational helpers that are NOT auto-run by any M
 ### `applications/platform/` vs `applications/landscapes/`
 
 - **`applications/platform/`** -- apps that exist **once per cluster**,
-  outside any single landscape's lifecycle. Today this directory is a
-  placeholder (see `applications/platform/README.md`): the first planned
-  occupant is **Harbor** (a private OCI registry for this repo's own
-  images, deployed via Argo into its own dedicated namespace
+  outside any single landscape's lifecycle. **`harbor.yaml`** (pointing
+  at `platform/harbor/`) is the first occupant: a Docker Hub
+  proxy-cache project (`dockerhub-proxy`) plus a private `dev` project
+  that is the authorized push target for feature-branch operator
+  images and maintainer-approved patched Onedata core images (it.183),
+  deployed via Argo into its own dedicated namespace
   `onedata-gitops-harbor` -- an "ours/demo" registry, not an official
-  Onedata cluster service). **Not built in this scaffold** -- a follow-up
-  commit lands `platform/harbor/` + `applications/platform/harbor.yaml`
-  once someone actually needs it.
+  Onedata cluster service. See `platform/harbor/README.md` for the full
+  design writeup and `applications/platform/README.md` for the
+  platform-vs-landscape split. **GATED like every landscape** -- schema-
+  valid and dry-run-clean, not yet applied to k8s-one.
 - **`applications/landscapes/`** -- one Application per
   `<landscape>-<version>` (e.g. `sv-posix-multinode-v1.yaml`). Many of
   these accumulate over time, one per landscape release. **Individually
@@ -136,6 +140,23 @@ land is a foot-gun this repo will not paper over.
 > task's scope; deploying to k8s-one is an explicit, separate, gated
 > follow-up.
 
+### Optional platform app: Harbor
+
+Harbor (`platform/harbor/`, it.178/179/183) is **independent of the
+four-step sequence above** -- it doesn't gate any landscape, and no
+landscape gates it. It only needs Argo CD to already exist:
+
+```
+make argocd-install     # step 3 above, if not already done
+make harbor-deploy      # any time after that, any order vs. deploy-landscape
+make harbor-configure   # creates the dockerhub-proxy + dev projects + push robot (idempotent, re-runnable)
+```
+
+**Also not run by this build** -- content + dry-run validation only,
+same gating as every landscape. See `platform/harbor/README.md` for
+the full design and "Using the Harbor proxy-cache from a landscape"
+below for how a landscape actually consumes it once deployed.
+
 ### Everyday targets
 
 ```sh
@@ -145,6 +166,12 @@ make list-landscapes                       # what's under landscapes/
 make delete-landscape NAME=... VERSION=... # remove a landscape's root Application (and, per its syncPolicy, its resources)
 make argocd-uninstall                      # tear down the Argo CD install
 make validate                              # kustomize build + helm template + kubectl apply --dry-run=client everywhere, NO cluster contact
+make harbor-deploy                         # apply the Harbor platform Application (gated -- see "Optional platform app: Harbor")
+make harbor-configure                      # (re-)run Harbor's config-as-code Job: dockerhub-proxy + dev projects + push robot
+make harbor-ui                             # port-forward the Harbor UI (localhost only)
+make harbor-login                          # docker login to Harbor's `dev` project from large-dev (robot account)
+make harbor-push IMAGE=...                 # tag + push an image into Harbor's `dev` project
+make harbor-pull-secret NS=...             # create the imagePullSecret for Harbor's `dev` project in namespace NS
 ```
 
 ## Landscapes
@@ -152,6 +179,125 @@ make validate                              # kustomize build + helm template + k
 | Name | Version | What it proves | Operator image |
 |---|---|---|---|
 | [`sv-posix-multinode`](landscapes/sv-posix-multinode/v1/README.md) | `v1` | `spec.managed.storageVolume` on a real RWX `nfs-xattr` PVC + `workerNodes: 2` (it.161/164) -- the multi-worker shared-posix feature | `groundnuty/onedata-operator:v0.6.0` (**forward reference -- see landscape README**) |
+
+## Harbor: proxy-cache + dev push target (it.178/179/183)
+
+`platform/harbor/` (Argo Application: `applications/platform/harbor.yaml`)
+is a cluster-singleton, GATED like every landscape -- see
+`platform/harbor/README.md` for the full design (chart-vendoring
+choice, exposure/TLS trade-off, resource sizing, config-as-code robot
+model). This section covers the two things a *landscape* author needs
+to know to actually use it.
+
+### Using the proxy-cache from a landscape: the image-prefix overlay pattern
+
+Harbor's `dockerhub-proxy` project (public, no auth needed to pull)
+mirrors any Docker Hub image the first time it's requested, then serves
+every subsequent pull from LAN speed. A landscape opts in with a
+**kustomize overlay**, not by editing its own base manifests --
+`images:` is kustomize's built-in transformer for exactly this, and it
+targets the standard `spec.containers[].image` field of any
+Pod-template-bearing kind (Deployment/StatefulSet/Job/...). Example,
+rewriting a landscape's own namespace-scoped operator image:
+
+```yaml
+# landscapes/<name>/<version>/overlays/harbor-proxy/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../.. # the base landscape, unmodified
+images:
+  - name: groundnuty/onedata-operator
+    newName: <harbor-node-ip>:30002/dockerhub-proxy/groundnuty/onedata-operator
+    # newTag: left unset -- keeps whatever tag the base kustomization pinned
+```
+
+Then `kustomize build .../overlays/harbor-proxy/` instead of the base
+directory directly. Any of the 22 node IPs works as `<harbor-node-ip>`
+(the NodePort is reachable cluster-wide); `make harbor-ui`'s output
+prints Harbor's current externalURL if you need to look it up.
+
+**Known gap, flagged not hidden (see `platform/harbor/README.md`'s
+"Known gaps" for the full writeup):** rewriting the reference is only
+half the story -- the node a rewritten-image pod actually schedules
+onto still needs its own k3s containerd to trust Harbor's HTTP
+endpoint for that host:port (any of the 22 nodes could be the one).
+That per-node trust step is NOT automated by this build; no landscape
+in this repo references a Harbor-prefixed image yet, so nothing is
+blocked today, but don't read this overlay pattern as sufficient on
+its own once one does.
+
+Separately, this pattern covers plain `spec.containers[].image`
+fields. It does **not** reach an `onedata.org` CR's own image spec field (e.g. a future
+`Oneprovider.spec.image`/`Onezone.spec.image`, if one is ever added) --
+those are custom CRD schema fields, not the standard PodSpec path
+kustomize's `images:` transformer understands structurally. Rewriting
+those would need a `replacements:`/JSON6902 patch targeting the
+specific field path instead -- not needed by any landscape in this repo
+today (none currently expose a raw image field on their CRs), noted
+here so the gap doesn't get rediscovered the hard way later.
+
+### The it.183 exception: patched/experimental images are NOT portable
+
+The it.178 baseline rule for every git-committed landscape: image refs
+stay **public and durable** (`groundnuty/...`, `onedata/...`) --
+Harbor is a transparent accelerator/dev-push-target, never the
+canonical home an actual landscape manifest depends on to be
+reproducible on a fresh cluster.
+
+**it.183 carves out one maintainer-authorized exception:** this
+cluster's own Harbor `dev` project may be referenced directly by an
+experimental/patched landscape (e.g. one running a
+`DYNAMIC_MEMBERSHIP`-patched core image, which is local-only and can
+never be pushed publicly or to any Onedata registry). Any landscape
+that does this **must** mark the reference loudly, inline, at the
+point of use:
+
+```yaml
+# EXPERIMENTAL / PATCHED CORE -- NOT PUBLICLY AVAILABLE.
+# Lives ONLY in this cluster's own Harbor `dev` project (it.183's
+# maintainer-authorized exception). NOT groundnuty/onedata-operator or
+# any onedata/* image; unpullable on any other cluster. See
+# platform/harbor/README.md's "it.183" section.
+image: harbor.onedata-gitops-harbor.svc.cluster.local/dev/op-worker:dynamic-membership-abc1234
+```
+
+This is the **only** documented exception to the public-refs
+principle -- every landscape in the table above keeps portable refs.
+
+### The pull-secret pattern: `make harbor-pull-secret`
+
+The `dev` project is private -- a landscape's namespace-scoped operator
+(or any pod) pulling FROM it (as opposed to large-dev pushing TO it)
+needs an `imagePullSecret`:
+
+```sh
+make harbor-pull-secret NS=<landscape-namespace>
+```
+
+creates a `kubernetes.io/dockerconfigjson` Secret named
+`harbor-dev-pull` in `NS`, built from the same `harbor-dev-robot`
+credential `platform/harbor/secrets.yaml` already defines (robot
+accounts can both push and pull within their scoped project -- see
+`platform/harbor/README.md`'s "Robot account and auth model"). A
+landscape references it the normal Kubernetes way, on whichever
+ServiceAccount/Pod spec pulls the image:
+
+```yaml
+# e.g. landscapes/<name>/<version>/operator/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: <name>-operator
+  namespace: <landscape-namespace>
+imagePullSecrets:
+  - name: harbor-dev-pull
+```
+
+or directly on a Pod spec via `spec.imagePullSecrets`. Not wired into
+any landscape in this repo today (none currently pull from `dev` --
+`sv-posix-multinode` pins a public `groundnuty/onedata-operator` ref)
+-- this is the documented pattern for the first one that does.
 
 ## Argo CD config notes (see `argocd/README.md` for the full writeup)
 

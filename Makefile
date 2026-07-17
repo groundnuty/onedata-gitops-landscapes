@@ -12,8 +12,19 @@ ARGOCD_NAMESPACE ?= onedata-gitops-argocd
 ARGOCD_VERSION   ?= v3.4.4
 KUBECONFIG_PATH  ?= $(KUBECONFIG)
 
+HARBOR_NAMESPACE     ?= onedata-gitops-harbor
+HARBOR_INTERNAL_HOST ?= harbor.onedata-gitops-harbor.svc.cluster.local
+# The 22 k8s-one nodes' external IPs all reach the same NodePort --
+# override with an actual node IP (see platform/harbor/README.md's
+# "Exposure and TLS" section) for harbor-login/harbor-push, which run
+# from OUTSIDE the cluster (large-dev's own docker daemon).
+HARBOR_HOST              ?= REPLACE-WITH-NODE-IP:30002
+HARBOR_PULL_SECRET_NAME  ?= harbor-dev-pull
+
 NAME    ?=
 VERSION ?=
+NS      ?=
+IMAGE   ?=
 
 .DEFAULT_GOAL := help
 
@@ -28,6 +39,9 @@ help: ## Show this help.
 	@echo "  2. make apply-crds                                  # superset/latest CRDs, once per cluster"
 	@echo "  3. make argocd-install                               # Argo CD itself, once per cluster"
 	@echo "  4. make deploy-landscape NAME=<name> VERSION=<ver>   # any landscape, any number of times"
+	@echo
+	@echo "Optional platform app (independent of the sequence above, needs argocd-install only):"
+	@echo "  make harbor-deploy && make harbor-configure          # Harbor: proxy-cache + dev push target (it.178/179/183)"
 	@echo
 	@echo "Nothing in this Makefile targets a live cluster by default -- 'make validate' only renders/schema-checks."
 
@@ -97,6 +111,62 @@ delete-landscape: ## Delete a landscape's root Application (NAME=... VERSION=...
 	echo "Deleting $$app ..."; \
 	kubectl delete -f "$$app" --ignore-not-found
 
+## --- Harbor (cluster-singleton platform app; it.178/179/183) ---------------
+# Independent of the mandatory landscape sequence -- only needs Argo CD
+# to already exist. See platform/harbor/README.md for the full design
+# and the top-level README's "Harbor: proxy-cache + dev push target"
+# section for the landscape-side consumption patterns.
+
+.PHONY: harbor-deploy
+harbor-deploy: ## Apply the Harbor platform Application (GATED -- requires make argocd-install first; independent of any landscape deploy).
+	kubectl apply -f applications/platform/harbor.yaml
+
+.PHONY: harbor-configure
+harbor-configure: ## (Re-)run Harbor's config-as-code Job: dockerhub-proxy + dev projects + push robot (config/configure-harbor.sh). Deletes the existing Job first -- Job.spec is immutable, so this is how you pick up a script edit too.
+	kubectl -n $(HARBOR_NAMESPACE) delete job harbor-configure-projects --ignore-not-found
+	kustomize build platform/harbor | kubectl apply -f -
+	@echo "Waiting for the config Job to complete..."
+	kubectl -n $(HARBOR_NAMESPACE) wait --for=condition=complete job/harbor-configure-projects --timeout=180s
+
+.PHONY: harbor-ui
+harbor-ui: ## Port-forward the Harbor UI to http://localhost:8081 (localhost only; TLS disabled in v1 -- see platform/harbor/README.md's "Exposure and TLS"). Login: admin / harbor-admin-secret's HARBOR_ADMIN_PASSWORD.
+	@echo "Harbor UI -> http://localhost:8081  (Ctrl-C to stop)"
+	kubectl -n $(HARBOR_NAMESPACE) port-forward svc/harbor 8081:80
+
+.PHONY: harbor-configure-insecure-registry
+harbor-configure-insecure-registry: ## One-time per large-dev docker daemon: mark Harbor's NodePort (HARBOR_HOST=<node-ip>:30002) as an insecure registry + restart docker. Requires sudo -- see scripts/configure-docker-insecure-registry.sh for exactly what it does and its scope limits.
+	@if [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-configure-insecure-registry HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
+	HARBOR_HOST=$(HARBOR_HOST) ./scripts/configure-docker-insecure-registry.sh
+
+.PHONY: harbor-login
+harbor-login: ## docker login to Harbor's `dev` project from large-dev, using the harbor-dev-robot account. Requires HARBOR_HOST=<node-ip>:30002 and (once) make harbor-configure-insecure-registry.
+	@if [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-login HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
+	@user="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.username}' | base64 -d)"; \
+	pass="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.password}' | base64 -d)"; \
+	echo "$$pass" | docker login "$(HARBOR_HOST)" -u "$$user" --password-stdin
+
+.PHONY: harbor-push
+harbor-push: ## Tag + push IMAGE=<local-image:tag> into Harbor's `dev` project. Requires HARBOR_HOST=<node-ip>:30002 and make harbor-login first.
+	@if [ -z "$(IMAGE)" ] || [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-push IMAGE=<local-image:tag> HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
+	@repo="$$(echo "$(IMAGE)" | sed 's/^.*\///')"; \
+	target="$(HARBOR_HOST)/dev/$${repo}"; \
+	echo "docker tag $(IMAGE) $${target}"; \
+	docker tag "$(IMAGE)" "$${target}"; \
+	echo "docker push $${target}"; \
+	docker push "$${target}"
+
+.PHONY: harbor-pull-secret
+harbor-pull-secret: ## Create/update the harbor-dev-pull imagePullSecret (from harbor-dev-robot) in namespace NS, for a landscape pulling from Harbor's private `dev` project. Defaults to the in-cluster Service DNS name (HARBOR_INTERNAL_HOST) -- see the top-level README's "pull-secret pattern".
+	@if [ -z "$(NS)" ]; then echo "usage: make harbor-pull-secret NS=<landscape-namespace> [HARBOR_INTERNAL_HOST=...]" >&2; exit 1; fi
+	@user="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.username}' | base64 -d)"; \
+	pass="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.password}' | base64 -d)"; \
+	kubectl -n "$(NS)" create secret docker-registry $(HARBOR_PULL_SECRET_NAME) \
+		--docker-server="$(HARBOR_INTERNAL_HOST)" \
+		--docker-username="$$user" \
+		--docker-password="$$pass" \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "secret/$(HARBOR_PULL_SECRET_NAME) ready in namespace $(NS). Reference it via imagePullSecrets on the consuming ServiceAccount/Pod."
+
 ## --- Cluster-manager scoping (documented, NOT run by this repo automatically) ---
 
 .PHONY: scope-cluster-manager
@@ -117,7 +187,7 @@ scope-cluster-manager: ## Restart the EXISTING k8s-one cluster-wide v0.5.0 manag
 # resource" anyway.
 
 .PHONY: validate
-validate: validate-argocd validate-crds validate-landscapes validate-applications ## Render + schema-check every manifest in this repo. Touches NO live cluster.
+validate: validate-argocd validate-crds validate-platform validate-landscapes validate-applications ## Render + schema-check every manifest in this repo. Touches NO live cluster.
 	@echo "All manifests rendered and schema-validated (client-side only)."
 
 .PHONY: validate-argocd
@@ -127,6 +197,13 @@ validate-argocd: ## kustomize build + dry-run the argocd/ install.
 .PHONY: validate-crds
 validate-crds: ## kustomize build + dry-run the crds/ superset.
 	kustomize build crds/ | kubectl create --dry-run=client -f - -o name
+
+.PHONY: validate-platform
+validate-platform: ## kustomize build + dry-run every platform/<app>/ (currently: platform/harbor/).
+	@for d in platform/*/; do \
+		echo "--- $$d ---"; \
+		kustomize build "$$d" | kubectl create --dry-run=client -f - -o name; \
+	done
 
 .PHONY: validate-landscapes
 validate-landscapes: ## kustomize build + dry-run every landscapes/<name>/<version>/.

@@ -1,0 +1,15 @@
+# Wave -1: the namespace itself, strictly before anything namespaced
+# (same reasoning as every landscape's 00-namespace.yaml -- Argo applies
+# every resource in one wave together, not strictly file-order, so the
+# namespace needs its own earlier wave to avoid racing the Secret/chart
+# resources that land in it).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    app.kubernetes.io/managed-by: onedata-gitops-landscapes-makefile
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
