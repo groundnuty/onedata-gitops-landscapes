@@ -1,0 +1,97 @@
+# Namespace-scoped Role (NOT a ClusterRole) mirroring
+# onedata-operator's config/rbac/role.yaml (its `manager-role`
+# ClusterRole) almost exactly, converted to a Role bound by a same-
+# namespace RoleBinding -- the it.176 model's per-landscape RBAC
+# isolation. Two deliberate deltas from the upstream ClusterRole, both
+# documented in the top-level README's "Known gaps" section:
+#
+#   1. DROPS `persistentvolumes` (core, cluster-scoped): a Role/
+#      RoleBinding structurally cannot authorize a cluster-scoped
+#      resource in Kubernetes RBAC, no matter what rules it lists --
+#      only a ClusterRole bound with a ClusterRoleBinding can. Confirmed
+#      safe to drop for THIS landscape by source read: no controller
+#      registers a permanent cache watch on corev1.PersistentVolume (no
+#      `.Owns(&corev1.PersistentVolume{})`/`.Watches(...)` anywhere in
+#      internal/controller/), so it is never touched by the manager's
+#      startup cache sync -- only reactively, inside
+#      TestStorageFixtureReconciler's Reconcile, for dataImage-seeded
+#      fixtures. This landscape ships zero TestStorageFixture CRs, so
+#      that reactive path never fires. If a future version of this
+#      landscape adds one, this Role stops being sufficient.
+#
+#   2. KEEPS testing.onedata.org/teststoragefixtures (unlike the drop
+#      above) even though this landscape's own CR set has none: the
+#      manager unconditionally registers TestStorageFixtureReconciler
+#      in cmd/main.go (no feature flag), so its cache DOES perform a
+#      permanent List/Watch on that CRD type at startup regardless --
+#      omitting this rule would 403 the manager's own cache sync and
+#      block it from ever becoming Ready.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-posix-multinode-operator
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, persistentvolumeclaims, secrets, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups, oneclients, oneproviders, onezones, spaces, storagebackends, supports, users]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups/finalizers, oneclients/finalizers, oneproviders/finalizers, onezones/finalizers, spaces/finalizers, storagebackends/finalizers, supports/finalizers, users/finalizers]
+    verbs: [update]
+  - apiGroups: [onedata.org]
+    resources: [groups/status, oneclients/status, oneproviders/status, onezones/status, spaces/status, storagebackends/status, supports/status, users/status]
+    verbs: [get, patch, update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/finalizers]
+    verbs: [update]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/status]
+    verbs: [get, patch, update]
+---
+# Leader election (single replica here, but the upstream Deployment
+# still passes --leader-elect; this Role is already namespace-scoped
+# upstream too, config/rbac/leader_election_role.yaml -- carried
+# forward unchanged).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-posix-multinode-operator-leader-election
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]

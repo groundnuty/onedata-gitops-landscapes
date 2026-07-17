@@ -1,0 +1,46 @@
+# Wave 0: cert-config, the it.165 "self-signed test path" for L1
+# (public HTTPS/GUI/REST) TLS. Governing principle from it.59/it.146:
+# the operator NEVER issues certs or runs its own CA -- cert-manager is
+# always the issuer, and oz-worker/op-worker read externally-supplied
+# web_key/web_cert files rather than minting anything themselves. This
+# landscape has no real DNS/ingress (same as demo/landscape-3p and
+# demo/landscape-max), so a self-signed Issuer is the whole story here --
+# no ACME/Let's Encrypt account, no external DNS challenge.
+#
+# HONEST GAP: this Certificate is issued but NOT YET WIRED into the
+# vendored onezone/oneprovider charts' TLS consumption path -- that
+# wiring is it.165's separate, not-yet-built cert-manager-everything
+# arc. It exists here to reserve the wave-0 slot the it.176 landscape
+# model calls for and to demonstrate the self-signed path end to end;
+# consuming it from the chart (rather than the chart's own baked-in
+# self-signed cert generation) is tracked as follow-up work, not done by
+# this scaffold.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: sv-posix-multinode-selfsigned
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sv-posix-multinode-demo-tls
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  secretName: sv-posix-multinode-demo-tls
+  commonName: onezone.sv-posix-multinode.svc.cluster.local
+  dnsNames:
+    - onezone.sv-posix-multinode.svc.cluster.local
+    - zone-onezone.sv-posix-multinode.svc.cluster.local
+    - "*.sv-posix-multinode.svc.cluster.local"
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  issuerRef:
+    name: sv-posix-multinode-selfsigned
+    kind: Issuer

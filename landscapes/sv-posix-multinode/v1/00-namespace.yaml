@@ -1,0 +1,16 @@
+# Wave -1 (strictly before cert-config's wave 0): the namespace itself
+# must exist before anything namespaced -- including cert-manager's
+# Issuer/Certificate -- can be created in it. Putting it in its own wave
+# rather than bundling it into wave 0 avoids a same-wave race between
+# "create the namespace" and "create a namespaced object in it" (Argo
+# applies every resource in one wave together, not strictly file-order).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sv-posix-multinode
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-posix-multinode
+    landscape-version: v1
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

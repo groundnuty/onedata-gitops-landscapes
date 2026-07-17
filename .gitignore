@@ -1,0 +1,11 @@
+# devbox
+.devbox/
+
+# kubeconfigs / local cluster access -- never commit these
+kubeconfig
+*.kubeconfig
+KUBECONFIG
+
+# local scratch
+*.tmp
+.DS_Store

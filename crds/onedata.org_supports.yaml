@@ -1,0 +1,363 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: supports.onedata.org
+spec:
+  group: onedata.org
+  names:
+    kind: Support
+    listKind: SupportList
+    plural: supports
+    singular: support
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.spaceRef.name
+      name: Space
+      type: string
+    - jsonPath: .spec.providerRef.name
+      name: Provider
+      type: string
+    - jsonPath: .spec.size
+      name: Size
+      type: string
+    - jsonPath: .status.supported
+      name: Supported
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Support is the Schema for the supports API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of Support
+            properties:
+              import:
+                description: |-
+                  import, when set, configures storage import for this support: the
+                  provider will scan the supporting storage (mode: auto) or accept
+                  per-file REST registration from space users (mode: manual) to
+                  register pre-existing files into the space, without copying data
+                  (see deliverables/storage-import-analysis.md §1). Mapped onto the
+                  support_space request's storageImport field
+                  (buildSpaceSupportRequest in support_feed.go).
+
+                  Requires the referenced StorageBackend to have
+                  spec.importedStorage=true (see its doc comment in
+                  storagebackend_types.go) -- the storage-level declaration that
+                  op-worker's assert_imported_storage gates on -- AND a helper type
+                  whose auto-import support op-worker actually implements: posix,
+                  nfs, glusterfs, nulldevice, webdav, and xrootd always; s3 only when
+                  its blockSize param is 0; NOT ceph (classic), cephrados, or swift.
+                  This operator does not itself validate either precondition;
+                  onepanel/op-worker reject the support_space call at request time
+                  if they are not met.
+                properties:
+                  continuousScan:
+                    description: |-
+                      continuousScan, when true, re-scans the storage periodically
+                      (every scanIntervalSeconds) instead of scanning once and going
+                      idle, so subsequent changes on the storage keep getting detected.
+                      Relevant only when mode is "auto". Unset keeps onepanel's own
+                      default (false: scan once).
+                    type: boolean
+                  mode:
+                    description: |-
+                      mode selects "auto" (the provider periodically scans the imported
+                      storage and registers pre-existing files without copying data) or
+                      "manual" (space users register files individually via onepanel's
+                      REST file-registration API; directory registration is not
+                      supported in this mode).
+
+                      op-worker treats mode as immutable for the lifetime of a support
+                      once submitted via support_space (storage_import.erl's own
+                      invariant: "cannot be modified" -- storage-import-analysis.md §1);
+                      a spec edit attempting to change it after the initial value has
+                      been set is rejected by the apiserver via the CEL rule below,
+                      rather than silently accepted and then ignored by onepanel.
+
+                      Known limitation: the rule only fires when a prior value exists at
+                      this exact path, so clearing spec.import to nil and then setting a
+                      new one in a second, separate update is not caught by this rule
+                      (there is no old Mode value to transition from at that point).
+                      Accepted for now -- the common mistake this guards against is a
+                      direct one-field edit, not a two-step clear-then-reset -- revisit
+                      with a whole-object CEL rule if that gap proves to matter in
+                      practice.
+                    enum:
+                    - auto
+                    - manual
+                    type: string
+                    x-kubernetes-validations:
+                    - message: mode is immutable once set (op-worker does not support
+                        changing storage-import mode after it has been configured)
+                      rule: self == oldSelf
+                  scanIntervalSeconds:
+                    description: |-
+                      scanIntervalSeconds sets the period between the end of one scan and
+                      the start of the next, in seconds, when continuousScan is true.
+                      Unset keeps onepanel's own default (60s).
+                    format: int64
+                    type: integer
+                required:
+                - mode
+                type: object
+              providerRef:
+                description: |-
+                  providerRef identifies the Oneprovider custom resource (in the same
+                  namespace) granting the support. Its spec.onepanelEndpoint /
+                  spec.onepanelCredentialsSecretRef (drive-first fields) and
+                  status.providerId (populated once registered) are used to feed the
+                  invite token and observe the resulting support edge.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              size:
+                anyOf:
+                - type: integer
+                - type: string
+                description: |-
+                  size is the amount of storage to commit to the space, as a
+                  Kubernetes resource quantity (e.g. "10Gi", "1Ti"). It is
+                  converted to bytes when submitted to Onepanel.
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
+              spaceRef:
+                description: |-
+                  spaceRef identifies the Space custom resource (in the same
+                  namespace) to support. The onezone endpoint used to mint the
+                  invite token is resolved from the referenced Space's
+                  spec.onezoneRef.endpoint (drive-first; see Space's doc comment).
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              storageRef:
+                description: |-
+                  storageRef identifies the StorageBackend custom resource (in the
+                  same namespace) backing the support. Its status.storageId
+                  (populated once registered with the provider) is submitted
+                  alongside the invite token.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              userTokenSecretRef:
+                description: |-
+                  userTokenSecretRef references a Secret holding a Onezone user
+                  access token (under the "token" key) used to mint the SUPPORT_SPACE
+                  invite token via onezone's create_space_support_token operation.
+                  The token's owner must have privileges to manage the referenced
+                  Space (e.g. be a space owner/admin). Required to perform the
+                  mint+feed handshake; not needed once status.requested is true.
+                properties:
+                  name:
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - providerRef
+            - size
+            - spaceRef
+            - storageRef
+            type: object
+          status:
+            description: status defines the observed state of Support
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the Support resource.
+                  Each condition has a unique type and reflects the status of a
+                  specific aspect of the resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              grantedProviderId:
+                description: |-
+                  grantedProviderId records the onezone-assigned providerId of the
+                  granting Oneprovider at the moment supported was last set true.
+                  Populated (and refreshed) by reconcileObserveSupport
+                  (internal/controller/support_observe.go) whenever the support edge
+                  is confirmed visible.
+
+                  Compared against the provider's CURRENT status.providerId (resolved
+                  fresh on every reconcile) to detect -- exactly, not heuristically --
+                  a provider that has re-registered under a new identity since
+                  support was granted (most plausibly a virgin-panel self-heal --
+                  reconcileManagedVirginPanelCheck in
+                  internal/controller/oneprovider_managed.go): the old support edge
+                  cannot carry over to a brand new identity that has never itself
+                  been fed a support_space request, so a mismatch here is the signal
+                  used to reset requested/supported and re-drive the mint+feed
+                  handshake from scratch (design it.44's "recreate-on-missing").
+
+                  Left empty for a Support never yet observed visible, or one created
+                  before this field existed. Either way, empty is treated as "nothing
+                  to compare against" -- no identity change is inferred from it alone
+                  -- rather than as a match or a mismatch; a bare read failure
+                  (401/403/404/5xx/...) on its own is deliberately never enough to
+                  infer an identity change without this recorded value, since it
+                  cannot by itself distinguish a new identity from a merely
+                  transient/auth hiccup on the same one.
+                type: string
+              phase:
+                description: |-
+                  phase summarizes the current lifecycle state of the support
+                  relationship.
+                enum:
+                - Pending
+                - Deploying
+                - Ready
+                - Degraded
+                type: string
+              requested:
+                description: |-
+                  requested reports whether the mint+feed handshake (minting a
+                  SUPPORT_SPACE invite token via onezone and submitting it to the
+                  provider via onepanel's support_space) has completed successfully.
+                  Set once onepanel accepts the request; never cleared afterward.
+
+                  This is deliberately tracked separately from supported: onepanel's
+                  support_space call is eventually consistent (it returns before the
+                  support edge has necessarily propagated), so requested -- not
+                  supported -- is what guards against re-minting/re-feeding while the
+                  edge is still converging. See reconcileFeedSupport's doc comment in
+                  internal/controller/support_feed.go.
+                type: boolean
+              sizeGranted:
+                anyOf:
+                - type: integer
+                - type: string
+                description: |-
+                  sizeGranted is the amount of storage actually granted, as reported
+                  by Onepanel. May differ from the requested size.
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
+              supported:
+                description: |-
+                  supported reports whether the support has been successfully
+                  granted by the Oneprovider *and* observed as visible on the
+                  provider's own onepanel (get_space_details). Never set from the
+                  support_space call's return value alone -- see requested's doc
+                  comment and reconcileObserveSupport in
+                  internal/controller/support_observe.go.
+                type: boolean
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

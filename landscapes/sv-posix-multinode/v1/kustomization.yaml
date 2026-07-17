@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The full hermetic sv-posix-multinode/v1 stack, ordered by
+# argocd.argoproj.io/sync-wave annotations baked into each manifest
+# (not by a kustomize-level mechanism -- kustomize itself has no
+# ordering concept; Argo CD reads the annotations at sync time):
+#
+#   wave -1  00-namespace.yaml            the namespace itself
+#   wave  0  01-cert-config.yaml          self-signed Issuer + Certificate (it.165 L1 test path)
+#   wave  1  operator/                    namespace-scoped, version-pinned onedata-operator
+#   wave  2  crs/                         demo Secrets, the storageVolume PVC, Onezone, Oneprovider
+#
+# NOT included here (see apply-dependent-crs.sh + the top-level README's
+# "Known gaps" section): StorageBackend/User/Space/Support, whose
+# spec.onepanelEndpoint fields are only known once wave 2's
+# Onezone/Oneprovider reach Ready. Applied as a documented day-2 manual
+# step, not part of this kustomization/Argo sync.
+resources:
+  - 00-namespace.yaml
+  - 01-cert-config.yaml
+  - operator/serviceaccount.yaml
+  - operator/role.yaml
+  - operator/rolebinding.yaml
+  - operator/deployment.yaml
+  - crs/secrets.yaml
+  - crs/storage-pvc.yaml
+  - crs/onezone.yaml
+  - crs/oneprovider.yaml

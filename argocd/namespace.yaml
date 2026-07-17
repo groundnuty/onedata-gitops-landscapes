@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: onedata-gitops-argocd
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    app.kubernetes.io/managed-by: onedata-gitops-landscapes-makefile

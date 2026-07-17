@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The one shared, cluster-scoped resource every landscape's namespace-
+# scoped operator instance depends on. See README.md in this directory
+# for the superset/latest rule.
+resources:
+  - onedata.org_groups.yaml
+  - onedata.org_oneclients.yaml
+  - onedata.org_oneproviders.yaml
+  - onedata.org_onezones.yaml
+  - onedata.org_spaces.yaml
+  - onedata.org_storagebackends.yaml
+  - onedata.org_supports.yaml
+  - onedata.org_users.yaml
+  - testing.onedata.org_teststoragefixtures.yaml

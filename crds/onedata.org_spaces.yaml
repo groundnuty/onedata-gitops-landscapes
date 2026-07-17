@@ -1,0 +1,318 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: spaces.onedata.org
+spec:
+  group: onedata.org
+  names:
+    kind: Space
+    listKind: SpaceList
+    plural: spaces
+    singular: space
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.name
+      name: Space Name
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.spaceId
+      name: SpaceID
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Space is the Schema for the spaces API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of Space
+            properties:
+              members:
+                description: |-
+                  members grants onezone Users direct membership and a varied
+                  privilege set in this space -- Onedata's core sharing primitive.
+                  Unlike Group.spec.spacePrivileges (which grants a GROUP privileges
+                  in a space it is presumed to already have standing in, joining it
+                  directly via add_group_to_space -- see group_privileges.go),
+                  granting a USER individual direct space membership hits the same
+                  self-service constraint Group.spec.memberUsers already works around
+                  (see reconcileMembers's doc comment, space_members.go, for why).
+
+                  Reconciliation is additive only, like Group.spec.memberUsers/
+                  spacePrivileges: a member listed here is granted membership/
+                  privileges if missing, but one removed from this list is NOT
+                  removed from the space by this controller.
+
+                  member" provenance model exists, mirroring the identical TODO on
+                  Group.spec.memberUsers/spacePrivileges (group_types.go).
+                items:
+                  description: |-
+                    SpaceMember grants an onezone User direct membership and a specific
+                    privilege set in a Space -- Onedata's core sharing primitive, closing the
+                    gap that a Space was previously owner-only from this operator's
+                    perspective (no way to grant another individual user direct, varied
+                    access without going through a Group). This is the space-level analog of
+                    GroupSpacePrivilegeGrant (group_types.go), but for a USER identity rather
+                    than a Group, and gating actual space MEMBERSHIP -- not just privileges
+                    on a relationship presumed to already exist -- since a user does not
+                    automatically belong to a space the way a Group can be added to one. See
+                    reconcileMembers's doc comment (space_members.go) for the
+                    mint(as owner)->consume(as member)->grant->observe handshake this
+                    drives.
+                  properties:
+                    privileges:
+                      description: |-
+                        privileges is the list of onezone space privileges (e.g.
+                        "space_read_data", "space_write_data" -- see
+                        internal/onezone/models.SpacePrivileges for onezone's authoritative
+                        enum) this user should be granted in this space. Validated at
+                        reconcile time against that generated swagger enum, exactly like
+                        GroupSpacePrivilegeGrant.Privileges (see its doc comment,
+                        group_types.go), rather than via a CRD-level enum-on-array-items
+                        marker.
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                    userRef:
+                      description: |-
+                        userRef identifies the User custom resource (in the same namespace)
+                        to grant membership and privileges to. The referenced User must
+                        have a non-empty status.userId AND (if not already an observed
+                        space member) a usable status.accessTokenSecretRef before this
+                        entry can be reconciled; until then it is skipped and retried on a
+                        later reconcile (see reconcileMembers's doc comment,
+                        space_members.go).
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - privileges
+                  - userRef
+                  type: object
+                type: array
+              name:
+                description: name is the human-readable name of the space.
+                maxLength: 253
+                minLength: 1
+                type: string
+              onezoneRef:
+                description: onezoneRef identifies the Onezone in which this space
+                  is created.
+                properties:
+                  endpoint:
+                    description: |-
+                      endpoint is the externally reachable Onezone domain or URL to
+                      register with. Used when the target Onezone is not managed by this
+                      operator (e.g. a shared, pre-existing zone).
+                    type: string
+                  name:
+                    description: name of the Onezone custom resource in the same namespace.
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: either name or endpoint must be set
+                  rule: has(self.name) || has(self.endpoint)
+              ownerRef:
+                description: |-
+                  ownerRef optionally identifies the User custom resource (in the same
+                  namespace) that owns this space. If omitted, the space is owned by
+                  the identity backing ownerTokenSecretRef.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              ownerTokenSecretRef:
+                description: |-
+                  ownerTokenSecretRef optionally references a Secret holding an access
+                  token used to create the space on behalf of its owner. Required
+                  when ownerRef does not resolve to a managed User with its own
+                  token.
+                properties:
+                  name:
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - name
+            - onezoneRef
+            type: object
+          status:
+            description: status defines the observed state of Space
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the Space resource.
+                  Each condition has a unique type and reflects the status of a
+                  specific aspect of the resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedMembers:
+                description: |-
+                  observedMembers lists the onezone user ids (and their last-observed
+                  privileges) confirmed (via list_user_space_privileges) as direct
+                  members of this space for every spec.members entry that could be
+                  resolved. Rebuilt fresh each reconcile, like
+                  Group.status.observedSpacePrivileges (see its doc comment,
+                  group_types.go) -- a member removed from spec.members also
+                  disappears from status even though the underlying onezone grant is
+                  left in place.
+                items:
+                  description: |-
+                    ObservedSpaceMember reflects the privileges last confirmed (via
+                    list_user_space_privileges) as granted to a User in this Space,
+                    identified by the User's onezone-assigned userId -- what
+                    list_user_space_privileges is keyed on -- rather than the User CR's
+                    Kubernetes name. Mirrors ObservedGroupSpacePrivilege's identical shape
+                    (group_types.go).
+                  properties:
+                    privileges:
+                      description: |-
+                        privileges is the list of privileges last confirmed as granted to
+                        this user in the space.
+                      items:
+                        type: string
+                      type: array
+                    userId:
+                      description: |-
+                        userId is the onezone-assigned identifier of the User these
+                        privileges were observed for.
+                      type: string
+                  required:
+                  - userId
+                  type: object
+                type: array
+              phase:
+                description: phase summarizes the current lifecycle state of the space.
+                enum:
+                - Pending
+                - Deploying
+                - Ready
+                - Degraded
+                type: string
+              spaceId:
+                description: |-
+                  spaceId is the Onezone-assigned identifier for this space,
+                  populated once it is created.
+                type: string
+              supports:
+                description: supports lists the Oneprovider IDs currently supporting
+                  this space.
+                items:
+                  type: string
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

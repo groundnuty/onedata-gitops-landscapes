@@ -1,0 +1,96 @@
+# Namespace-scoped onedata-operator instance for the sv-posix-multinode
+# landscape ONLY: --watch-namespace restricts its controller-runtime
+# cache to this one namespace (cmd/main.go's watchNamespace flag), so it
+# never sees (and cannot reconcile, correctly or otherwise) any other
+# landscape's CRs -- the it.176 "operator version lives in the
+# landscape" model, no cluster-wide-manager fighting.
+#
+# ============================================================
+# IMAGE PIN -- READ BEFORE DEPLOYING (forward reference):
+# ============================================================
+# groundnuty/onedata-operator:v0.6.0 does NOT YET EXIST on Docker Hub as
+# of this scaffold. It is a FORWARD reference: v0.6.0 will be tagged and
+# published once the in-flight cold-scale-up work merges to master,
+# BEFORE this landscape's first gated deploy. This landscape needs a
+# post-v0.5.0 build specifically for `spec.managed.storageVolume` +
+# `spec.managed.topology.workerNodes` (it.161/164) -- v0.5.0 (the
+# currently-deployed k8s-one image) predates both fields and would
+# SILENTLY DROP them (see the top-level README's mandatory deploy
+# sequence step 1 for why that is dangerous even for OTHER landscapes,
+# not just this one). Do not `docker push` or `make deploy-landscape`
+# against this manifest until v0.6.0 is confirmed to exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sv-posix-multinode-operator
+  namespace: sv-posix-multinode
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: onedata-operator
+    landscape: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      landscape: sv-posix-multinode
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: onedata-operator
+        landscape: sv-posix-multinode
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: sv-posix-multinode-operator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          # See the IMAGE PIN note at the top of this file.
+          image: groundnuty/onedata-operator:v0.6.0
+          command: ["/manager"]
+          args:
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+            - --watch-namespace=sv-posix-multinode
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

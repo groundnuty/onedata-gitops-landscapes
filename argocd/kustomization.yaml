@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deliberately NO namePrefix/nameSuffix here: Argo CD's own binaries
+# (argocd-server/repo-server/application-controller) look up their
+# ConfigMap/Secret dependencies by HARDCODED name (argocd-cm,
+# argocd-secret, argocd-rbac-cm, ...) -- these names are baked into Argo
+# CD's Go source, not parameterized by any env var in upstream
+# install.yaml. A kustomize namePrefix would silently break Argo CD
+# (the server would come up but never find its own config). The correct
+# (and upstream-supported) way to run an isolated instance is a dedicated
+# NAMESPACE, which every Argo CD binary DOES respect -- so that is the
+# only transform applied below.
+namespace: onedata-gitops-argocd
+
+resources:
+  - namespace.yaml
+  - vendor/install-v3.4.4.yaml
+
+patches:
+  - path: argocd-cm-patch.yaml
+    target:
+      kind: ConfigMap
+      name: argocd-cm

@@ -1,0 +1,133 @@
+# Strategic-merge patch onto the vendored argocd-cm ConfigMap. `data` is a
+# plain string map, so a partial patch here ADDS these keys without
+# touching any other key the upstream install.yaml (or a future Argo CD
+# upgrade) ships in the same ConfigMap.
+#
+# it.176: "add ... a ~10-line Argo Lua health check reading status.phase"
+# -- every onedata.org + testing.onedata.org primitive CRD already
+# carries the SAME status.phase enum (Pending/Deploying/Ready/Degraded,
+# api/v1alpha1/common_types.go), so one small Lua body, repeated per
+# kind (Argo CD's resource.customizations.health.<group>_<Kind> keys
+# do not support a Kind wildcard -- each GroupKind needs its own key).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  resource.customizations.health.onedata.org_Onezone: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_Oneprovider: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_StorageBackend: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_Space: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_Support: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_User: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_Group: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.onedata.org_Oneclient: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs
+  resource.customizations.health.testing.onedata.org_TestStorageFixture: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for status.phase"
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      hs.message = obj.status.phase
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+      elseif obj.status.phase == "Degraded" then
+        hs.status = "Degraded"
+      end
+    end
+    return hs

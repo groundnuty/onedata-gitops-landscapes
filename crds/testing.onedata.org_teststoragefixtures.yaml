@@ -1,0 +1,247 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: teststoragefixtures.testing.onedata.org
+spec:
+  group: testing.onedata.org
+  names:
+    kind: TestStorageFixture
+    listKind: TestStorageFixtureList
+    plural: teststoragefixtures
+    singular: teststoragefixture
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.endpoint
+      name: Endpoint
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TestStorageFixture is the Schema for the teststoragefixtures
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of TestStorageFixture
+            properties:
+              chartValues:
+                additionalProperties:
+                  type: string
+                description: |-
+                  chartValues overrides the per-type contract's fixed default helm
+                  values (e.g. minio's bucketName, webdav's username/password)
+                  passed to the underlying volume-* chart. Unset keys keep their
+                  contract default -- this does not need to (and should not)
+                  duplicate that chart's entire values.yaml, only settings meant to
+                  diverge from the fixed default.
+
+                  For spec.type=posix (no chart to install), this map is reused, by
+                  convention, to override the fixed default "mountPoint" published
+                  directly as status.endpoint -- see
+                  internal/teststorage.Contract.DefaultChartValues' doc comment.
+                type: object
+              credentialOverrides:
+                additionalProperties:
+                  type: string
+                description: |-
+                  credentialOverrides overrides the per-type contract's fixed
+                  default credentials Secret contents (e.g. s3's
+                  accessKey/secretKey, webdav's username/password). Unset keys keep
+                  their contract default.
+                type: object
+              dataImage:
+                description: |-
+                  dataImage, when set (spec.type=nfs only), seeds this fixture's
+                  single export with an "onedata/data-container:<dataset>-<tag>"
+                  image's baked-in dataset (see data-container/README.md for
+                  available images, e.g. "onedata/data-container:covid-data-10k-
+                  latest"). The volume-nfs chart bind-mounts the image's own /data
+                  directory live, via a privileged sidecar and a shared emptyDir with
+                  Bidirectional mount propagation -- no data is copied, and the
+                  seeded dataset only exists while that sidecar's pod is running
+                  (deliverables/storage-import-analysis.md §3(a)). This is what gives
+                  an "auto" storage-import scan (Support.spec.import) pre-existing
+                  files to discover.
+
+                  Unset means an ordinary empty export, as today. Ignored for any
+                  spec.type other than nfs.
+                type: string
+              imagePullSecrets:
+                description: |-
+                  imagePullSecrets lists the names of Secrets (in the same namespace)
+                  holding registry credentials the underlying volume-* chart's pod
+                  should use to pull its image (e.g. swift's
+                  docker.onedata.org/dockswift, served from a private registry).
+                  Plumbed into the chart's global.imagePullSecrets value via
+                  deploy.SetImagePullSecrets -- the same mechanism
+                  ManagedDeployment.ImagePullSecrets (api/v1alpha1/oneprovider_types.go)
+                  uses for a managed Oneprovider/Onezone's chart install. Empty (the
+                  default) omits imagePullSecrets entirely, matching the chart's own
+                  unset-global behavior. Smoke-test finding: previously never wired
+                  through at all, so a chart-backed fixture whose image lives on a
+                  private registry (e.g. volume-swift's dockswift image) hit
+                  ErrImagePull with no way to supply pull credentials.
+                items:
+                  type: string
+                type: array
+              type:
+                description: |-
+                  type selects which storage kind's fake test server this fixture
+                  deploys. Determines the volume-* chart installed and the fixed
+                  default credentials/chart values (internal/teststorage's typed
+                  per-type contract) -- see StorageFixtureType's doc comment for why
+                  this enum is a deliberate subset of StorageBackend's fuller one.
+                enum:
+                - posix
+                - nfs
+                - s3
+                - webdav
+                - cephrados
+                - swift
+                - glusterfs
+                type: string
+            required:
+            - type
+            type: object
+          status:
+            description: status defines the observed state of TestStorageFixture
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the TestStorageFixture
+                  resource. Each condition has a unique type and reflects the status
+                  of a specific aspect of the resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              credentialsSecretName:
+                description: |-
+                  credentialsSecretName is the name of the Secret (in this
+                  TestStorageFixture's own namespace) this fixture created, holding
+                  its type's fixed default (or spec.credentialOverrides-overridden)
+                  credentials -- named "<fixture-name>-creds". Empty for types
+                  needing no credentials (posix): no Secret is created for those.
+                type: string
+              endpoint:
+                description: |-
+                  endpoint is the deployed fake server's in-cluster address, e.g.
+                  "myfixture-volume-s3.default.svc.cluster.local:9000" (s3, no
+                  scheme -- StorageBackend's s3 params take hostname/scheme
+                  separately) or "http://myfixture-volume-webdav.default.svc.
+                  cluster.local:80" (webdav, a single full-URL endpoint param). For
+                  spec.type=posix, this is the hostPath mount point instead (e.g.
+                  "/volumes/posix"), not a network address.
+                type: string
+              observedGeneration:
+                description: |-
+                  observedGeneration is the metadata.generation this fixture's
+                  underlying helm release was last installed/upgraded against --
+                  mirrors Oneprovider's status.managedObservedGeneration
+                  (oneprovider_managed.go's reconcileManagedSpecUpdate) exactly.
+                  TestStorageFixtureReconciler.reconcileChart only calls
+                  HelmManager.InstallOrUpgrade when this differs from
+                  metadata.generation, so the requeue-every-podPollInterval poll a
+                  non-Ready chart-backed fixture goes through does not re-upgrade the
+                  release on every pass (smoke-test finding: previously did, leaving
+                  one release-history Secret behind per poll -- 82 in 9 minutes
+                  observed on a stuck fixture).
+                format: int64
+                type: integer
+              phase:
+                description: phase summarizes the current lifecycle state of the fixture.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

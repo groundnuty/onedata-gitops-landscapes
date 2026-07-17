@@ -1,0 +1,42 @@
+# Single managed Oneprovider, exercising the it.161/164 feature this
+# landscape exists for:
+#   - spec.managed.storageVolume: a pre-existing RWX PersistentVolumeClaim
+#     (storage-pvc.yaml, nfs-xattr-backed), mounted identically at
+#     /volumes/posix across every worker pod -- disables the chart's own
+#     built-in per-pod posix PVC.
+#   - spec.managed.topology.workerNodes: 2, databaseNodes: 1 (Bundled,
+#     the default databaseMode) -- two op_worker pods sharing that one
+#     PVC, proving the multi-worker shared-posix pattern.
+#
+# Same drive-first onezoneRef caveat as demo/landscape-max: BOTH
+# onezoneRef.name (token-minting) and onezoneRef.endpoint (chart-value
+# wiring) are required.
+#
+# PREREQUISITE: same external docker-onedata-org imagePullSecret as
+# onezone.yaml -- see its header comment.
+apiVersion: onedata.org/v1alpha1
+kind: Oneprovider
+metadata:
+  name: provider
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "provider"
+  adminEmail: "sv-posix-multinode-admin@example.com"
+  onezoneRef:
+    name: zone
+    endpoint: zone-onezone.sv-posix-multinode.svc.cluster.local
+  onepanelCredentialsSecretRef:
+    name: provider-onepanel-creds
+  managed:
+    enabled: true
+    image: docker.onedata.org/oneprovider-dev:develop
+    imagePullSecrets:
+      - docker-onedata-org
+    storageVolume:
+      persistentVolumeClaim:
+        claimName: sv-posix-multinode-shared-posix
+    topology:
+      databaseNodes: 1
+      workerNodes: 2

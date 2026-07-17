@@ -1,0 +1,24 @@
+# The RWX PVC that backs spec.managed.storageVolume on the Oneprovider
+# below (see oneprovider.yaml) -- mounted IDENTICALLY across both worker
+# pods (workerNodes: 2), no per-pod subPathExpr, exercising the it.161/
+# 164 multi-worker shared-posix feature. Dynamically provisioned by
+# k8s-one's existing `nfs-xattr` StorageClass
+# (cluster.local/nfs-xattr-nfs-subdir-external-provisioner --
+# confirmed present via `kubectl get storageclass` against
+# /mnt/data/work/demo-a/kubeconfig during this scaffold's recon;
+# RECLAIM POLICY Delete, VOLUMEBINDINGMODE Immediate,
+# ALLOWVOLUMEEXPANSION true).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sv-posix-multinode-shared-posix
+  namespace: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-xattr
+  resources:
+    requests:
+      storage: 5Gi

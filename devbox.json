@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
+  "packages": [
+    "kubectl@1.36.2",
+    "kustomize@5.8.1",
+    "kubernetes-helm@4.2.2",
+    "git@2.54.0",
+    "jq@1.8.1",
+    "yq-go@4.53.3",
+    "gh@2.96.0",
+    "argocd@3.4.4"
+  ],
+  "shell": {
+    "init_hook": [
+      "echo \"onedata-gitops-landscapes devbox ready -- see: make help\""
+    ],
+    "scripts": {
+      "test": [
+        "echo \"no automated tests; use: make validate\""
+      ]
+    }
+  }
+}
