@@ -1,0 +1,49 @@
+# Single managed Oneprovider, exercising the SAME it.161/164 feature v1
+# proved live on real hardware (design it.198's multi-node RWX-posix
+# payoff): spec.managed.storageVolume (the pre-existing RWX PVC,
+# storage-pvc.yaml) + spec.managed.topology.workerNodes: 2 -- two
+# op_worker pods sharing one nfs-xattr PVC, no per-pod subPathExpr.
+#
+# v2 deltas from v1's crs/oneprovider.yaml (design it.196/203) -- same
+# two changes as crs/onezone.yaml, mirrored here:
+#
+# 1. spec.tls: onedata-dev-ca ClusterIssuer + trustIssuerCA: true (see
+#    onezone.yaml's header for the full why).
+#
+# 2. spec.managed.image: harbor.../dockerhub-proxy/onedata/
+#    oneprovider:21.02.7 (public image, proxy-cached, no
+#    imagePullSecret needed) instead of v1's private
+#    docker.onedata.org/oneprovider-dev:develop + the external
+#    docker-onedata-org imagePullSecret it required.
+#
+# storageVolume/topology are UNCHANGED from v1 -- same feature, same
+# shape, just a different namespace and image source.
+apiVersion: onedata.org/v1alpha1
+kind: Oneprovider
+metadata:
+  name: provider
+  namespace: sv-posix-multinode-v2
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "provider"
+  adminEmail: "sv-posix-multinode-admin@example.com"
+  onezoneRef:
+    name: zone
+    endpoint: zone-onezone.sv-posix-multinode-v2.svc.cluster.local
+  onepanelCredentialsSecretRef:
+    name: provider-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/oneprovider:21.02.7
+    storageVolume:
+      persistentVolumeClaim:
+        claimName: sv-posix-multinode-shared-posix
+    topology:
+      databaseNodes: 1
+      workerNodes: 2

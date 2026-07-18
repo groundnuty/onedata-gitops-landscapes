@@ -1,0 +1,83 @@
+# Namespace-scoped Role (NOT a ClusterRole), unchanged from v1's own
+# operator/role.yaml (which already carries the it.198 deploy-fix --
+# the `networking.k8s.io/networkpolicies` rule, needed by the
+# oneprovider chart-wrap's pre-install lookup even though v0.6.1 renders
+# no NetworkPolicy by default, it.202: harmless surplus permission,
+# future-proofs an opt-in networkPolicy.enabled=true on this same Role
+# without a second RBAC edit). See v1's role.yaml for the two
+# deliberate deltas from the upstream ClusterRole (drops
+# persistentvolumes; keeps teststoragefixtures) -- both apply here
+# identically, this landscape ships neither a TestStorageFixture nor
+# any dataImage-seeded fixture.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-posix-multinode-operator
+  namespace: sv-posix-multinode-v2
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, persistentvolumeclaims, secrets, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  # it.198 deploy-fix, kept even though NP defaults off in v0.6.1
+  # (it.202) -- see header comment.
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups, oneclients, oneproviders, onezones, spaces, storagebackends, supports, users]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups/finalizers, oneclients/finalizers, oneproviders/finalizers, onezones/finalizers, spaces/finalizers, storagebackends/finalizers, supports/finalizers, users/finalizers]
+    verbs: [update]
+  - apiGroups: [onedata.org]
+    resources: [groups/status, oneclients/status, oneproviders/status, onezones/status, spaces/status, storagebackends/status, supports/status, users/status]
+    verbs: [get, patch, update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/finalizers]
+    verbs: [update]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/status]
+    verbs: [get, patch, update]
+---
+# Leader election (single replica here, but the upstream Deployment
+# still passes --leader-elect; unchanged from v1).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-posix-multinode-operator-leader-election
+  namespace: sv-posix-multinode-v2
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]

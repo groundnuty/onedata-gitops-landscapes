@@ -1,0 +1,54 @@
+# Managed Onezone -- v2 deltas from v1's crs/onezone.yaml (design
+# it.196/203):
+#
+# 1. spec.tls: points at the shared onedata-dev-ca ClusterIssuer
+#    (platform/onedata-dev-ca/) instead of leaving TLS unset (v1 fell
+#    back to the operator's default self-signed cert, with the
+#    landscape's own separate, UNWIRED self-signed Issuer+Certificate
+#    sitting inert alongside it -- see v1's README "HONEST GAP"). The
+#    operator's cert-MVP (it.168/190) is issuer-agnostic, so this is a
+#    values-only change; trustIssuerCA: true (it.200, MERGED) is what
+#    makes provider<->zone GraphSync/rtransfer/onepanel<->zone
+#    registration actually TRUST the issued leaf, not just serve it --
+#    see platform/onedata-dev-ca/README.md and
+#    research/dev-ca-trust-design.md for the full why.
+#
+# 2. spec.managed.image: the PUBLIC onedata/onezone:21.02.7 Docker Hub
+#    image, via Harbor's `dockerhub-proxy` proxy-cache project
+#    (design it.203's "Harbor-for-everything" directive) instead of
+#    v1's private docker.onedata.org/onezone-dev:develop. Two
+#    consequences: (a) this is a proxy-CACHE for an already-public
+#    image, not a private push target -- unlike the operator image
+#    (operator/deployment.yaml), there is a portable fallback: drop the
+#    harbor.../dockerhub-proxy/ prefix and pull onedata/onezone:21.02.7
+#    directly from any cluster with internet egress; (b) the
+#    dockerhub-proxy project is PUBLIC (metadata.public: "true",
+#    platform/harbor/README.md), so pulling through it needs NO
+#    imagePullSecret -- spec.managed.imagePullSecrets is dropped
+#    entirely versus v1 (which needed the external docker-onedata-org
+#    secret for the private docker.onedata.org registry). v2 has no
+#    such external prerequisite for THIS image.
+#
+# Domain still left unset (same known gap as v1 and every demo/
+# landscape in the operator repo -- no real DNS/ingress here either).
+apiVersion: onedata.org/v1alpha1
+kind: Onezone
+metadata:
+  name: zone
+  namespace: sv-posix-multinode-v2
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "sv-posix-multinode-zone"
+  adminAccountSecretRef:
+    name: onezone-admin-account
+  onepanelCredentialsSecretRef:
+    name: onezone-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/onezone:21.02.7

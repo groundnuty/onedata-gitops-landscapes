@@ -1,0 +1,116 @@
+# Namespace-scoped onedata-operator instance for sv-posix-multinode/v2
+# ONLY: --watch-namespace restricts its controller-runtime cache to
+# sv-posix-multinode-v2, the it.176 "operator version lives in the
+# landscape" model -- never sees, and cannot reconcile, v1's own
+# namespace-scoped operator/CRs (sv-posix-multinode) or any other
+# landscape's.
+#
+# ============================================================
+# IMAGE PIN -- READ BEFORE DEPLOYING (forward reference, it.203):
+# ============================================================
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
+# does NOT YET EXIST as of this scaffold. v0.6.1 is a FORWARD
+# reference: per design it.203 ("Harbor-for-everything"), it will be
+# cut carrying the it.200 trustIssuerCA mount (MERGED, operator master
+# b406b86), the it.201 disterl-NetworkPolicy Couchbase-ports fix
+# (MERGED, d44fc97) and onepanel bootstrap-task retry heal (MERGED,
+# 6e627e8), and the it.202 NetworkPolicy-default-OFF flip (queued,
+# separate agent, disjoint operator-repo branch) -- THEN pushed to
+# BOTH Harbor's private `dev` project AND Docker Hub
+# (groundnuty/onedata-operator:v0.6.1) per it.203's directive, BEFORE
+# this landscape's first gated deploy.
+#
+# This is a DELIBERATE it.203 policy choice, not the it.183 exception:
+# Harbor is now the DEFAULT image path for landscapes going forward
+# (superseding it.178's "public refs are the baseline, Harbor is an
+# authorized exception" framing for the OPERATOR image specifically),
+# even though a public groundnuty/onedata-operator:v0.6.1 will ALSO
+# exist. The honest caveat still applies regardless of which policy
+# framing you use: THIS manifest pins the Harbor ref, so pulling it on
+# any cluster without an equivalent Harbor `dev` project + pull-secret
+# will fail -- see operator/serviceaccount.yaml's imagePullSecrets +
+# the top-level README's "The pull-secret pattern" section. A cluster
+# without this Harbor could substitute the public
+# groundnuty/onedata-operator:v0.6.1 ref instead (same bits, different
+# registry) -- not what this reference landscape does, by the it.203
+# directive.
+#
+# Do NOT `make deploy-landscape NAME=sv-posix-multinode VERSION=v2`
+# until (1) v0.6.1 is confirmed pushed to Harbor's `dev` project and
+# (2) `make harbor-pull-secret NS=sv-posix-multinode-v2` has been run
+# -- see the landscape README's gated deploy order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sv-posix-multinode-operator
+  namespace: sv-posix-multinode-v2
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: onedata-operator
+    landscape: sv-posix-multinode
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      landscape: sv-posix-multinode
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: onedata-operator
+        landscape: sv-posix-multinode
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: sv-posix-multinode-operator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          # See the IMAGE PIN note at the top of this file.
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
+          command: ["/manager"]
+          args:
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+            - --watch-namespace=sv-posix-multinode-v2
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

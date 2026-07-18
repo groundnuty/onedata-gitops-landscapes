@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# sv-posix-multinode/v2 -- the reproducible-from-git "productionized"
+# successor to v1 (design it.196/203): dev-CA TLS (issuerRef +
+# trustIssuerCA against the onedata-dev-ca ClusterIssuer) + Harbor
+# images (operator from the private `dev` project, Onedata components
+# via the public `dockerhub-proxy` proxy-cache) + a v0.6.1 operator pin
+# (NetworkPolicy default-off, it.202; the it.201 Couchbase-ports chart
+# fix; the it.200 trustIssuerCA mount) + every it.198 deploy-fix v1
+# already carries. Deploys into its OWN namespace
+# (sv-posix-multinode-v2) -- the RUNNING v1 landscape (namespace
+# sv-posix-multinode) is left completely undisturbed.
+#
+# Ordered by argocd.argoproj.io/sync-wave annotations baked into each
+# manifest, same convention as v1:
+#
+#   wave -1  00-namespace.yaml            the namespace itself
+#   wave  1  operator/                    namespace-scoped, version-pinned onedata-operator (Harbor `dev` image)
+#   wave  2  crs/                         demo Secrets, the storageVolume PVC, Onezone, Oneprovider
+#
+# WAVE 0 (v1's 01-cert-config.yaml) IS GONE, DELIBERATELY: v1's wave-0
+# self-signed Issuer+Certificate was never wired into the vendored
+# charts' TLS consumption path (see v1's own README -- an "HONEST GAP"
+# by its own admission). v2 closes that gap via the REAL path instead
+# of carrying a dead placeholder forward: each managed CR's own
+# spec.tls (crs/onezone.yaml, crs/oneprovider.yaml) drives the
+# operator's cert-MVP (it.168/190) directly against the shared
+# onedata-dev-ca ClusterIssuer (platform/onedata-dev-ca/) at CR-apply
+# time (wave 2) -- no separate landscape-level Certificate object
+# needed.
+#
+# crs/networkpolicy-couchbase.yaml IS ALSO GONE: it was v1's additive
+# landscape-side mitigation for a real operator-chart defect (the
+# it.157 disterl NetworkPolicy default-denied Couchbase ports on an
+# enforcing CNI, design it.198 finding #5). Two things closed that
+# properly upstream: the it.201 chart fix folds the missing
+# 8091-8096/11207-11211 ports directly into
+# charts/oneprovider/templates/networkpolicy.yaml, AND it.202 flips
+# `networkPolicy.enabled` to default FALSE for v0.6.1 (a NetworkPolicy
+# is a compensating control for a threat model the maintainer hasn't
+# opted into by default; see design it.202's rationale). With NP
+# rendering off by default, v2 has nothing to compensate for -- if a
+# future landscape opts back into networkPolicy.enabled=true on an
+# enforcing-CNI cluster, the it.201 fix is already baked into the
+# chart, so no landscape-side additive policy is needed there either.
+resources:
+  - 00-namespace.yaml
+  - operator/serviceaccount.yaml
+  - operator/role.yaml
+  - operator/rolebinding.yaml
+  - operator/deployment.yaml
+  - crs/secrets.yaml
+  - crs/storage-pvc.yaml
+  - crs/onezone.yaml
+  - crs/oneprovider.yaml

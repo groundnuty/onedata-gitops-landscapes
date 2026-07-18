@@ -1,0 +1,17 @@
+# Wave -1 (strictly before any namespaced resource): the namespace
+# itself. Named sv-posix-multinode-v2, DELIBERATELY DIFFERENT from v1's
+# `sv-posix-multinode` namespace -- v2 deploys ALONGSIDE the running v1
+# landscape (design it.196/203), not in place of it. Same "own wave"
+# reasoning as v1's 00-namespace.yaml (Argo applies every resource in a
+# wave together, not strictly file-order, so the namespace needs to
+# land before anything namespaced races it).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sv-posix-multinode-v2
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-posix-multinode
+    landscape-version: v2
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
