@@ -37,6 +37,15 @@ spec:
       restartPolicy: Never
       securityContext:
         runAsNonRoot: true
+        # alpine/k8s ships no USER directive (defaults to root), so
+        # runAsNonRoot alone makes the kubelet refuse to start the
+        # container ("container has runAsNonRoot and image will run as
+        # root" -- hit live on the first k8s-one deploy, it.176-191).
+        # Pin an explicit non-root identity: nobody/nogroup. The script
+        # only needs bash+curl+jq and writes nothing outside the
+        # emptyDir /tmp, so no filesystem ownership matters.
+        runAsUser: 65534
+        runAsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
       containers:
