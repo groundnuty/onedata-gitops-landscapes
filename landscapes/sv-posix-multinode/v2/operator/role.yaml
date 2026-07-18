@@ -9,6 +9,20 @@
 # persistentvolumes; keeps teststoragefixtures) -- both apply here
 # identically, this landscape ships neither a TestStorageFixture nor
 # any dataImage-seeded fixture.
+#
+# it.209-v2-deploy FIX: adds the `cert-manager.io/certificates` rule,
+# present in the operator's own upstream ClusterRole
+# (config/rbac/role.yaml) but missing from this landscape's Role --
+# v1 never needed it (TLS was a landscape-level, wave-0
+# Issuer+Certificate the operator never touched), but v2 drives TLS
+# directly off each managed CR's own spec.tls (issuerRef against
+# onedata-dev-ca), which the operator's cert-MVP (it.168/190) satisfies
+# by creating a cert-manager.io Certificate object itself at CR-apply
+# time -- this Role must therefore grant that permission, or the
+# reconciler 403s trying to create/get it (live-caught: zone-onezone-0 /
+# provider-oneprovider-0 stuck ContainerCreating on FailedMount, TLS
+# Secret never materialized, because the Certificate object never got
+# created in the first place).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -34,6 +48,12 @@ rules:
     verbs: [create, delete, get, list, patch, update, watch]
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  # it.209-v2-deploy fix -- see header comment: the operator's cert-MVP
+  # creates a cert-manager.io Certificate per managed CR when
+  # spec.tls.issuerRef is set (v2's dev-CA TLS path).
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
     verbs: [create, delete, get, list, patch, update, watch]
   # it.198 deploy-fix, kept even though NP defaults off in v0.6.1
   # (it.202) -- see header comment.
