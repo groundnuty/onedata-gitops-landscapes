@@ -5,13 +5,20 @@
 # m3-live-proof.md §2, permanent GraphSync refusal on version
 # mismatch).
 #
-# PREREQUISITE (external, NOT created by this repo): an imagePullSecret
-# named docker-onedata-org must already exist in the sv-livegrow
-# namespace, holding real credentials for the private
-# docker.onedata.org registry -- genuine infra credentials, deliberately
-# NOT committed here, same prerequisite sv-posix-multinode/v1 already
-# documents (copy/recreate from that namespace's existing secret of the
-# same name, or from whatever the maintainer's canonical source is).
+# Image sourcing (design it.209 "Harbor for everything" directive --
+# NOT the docker.onedata.org / docker-onedata-org-imagePullSecret
+# pattern sv-posix-multinode/v1 used, which predates that directive):
+# `docker.onedata.org/onezone-dev:develop` was pulled once on large-dev
+# (already-authenticated docker login) and pushed to Harbor's PRIVATE
+# `dev` project as `dev/onezone-dev:develop-livegrow-hw1` -- the same
+# treatment as the patched Oneprovider image, so this landscape has
+# ZERO dependency on the docker.onedata.org registry or its credential
+# at deploy time, matching how sv-posix-multinode/v2 sources every
+# image through Harbor. Pull secret: the SAME `harbor-dev-pull` Secret
+# (created via `make harbor-pull-secret NS=sv-livegrow`, canonical
+# source `harbor-dev-robot` in ns `onedata-gitops-harbor`) already used
+# by the operator's own ServiceAccount and by oneprovider.yaml below --
+# no second mechanism invented.
 #
 # TLS: dev-CA ClusterIssuer + trustIssuerCA, same productionized
 # pattern as sv-posix-multinode/v2 (platform/onedata-dev-ca/).
@@ -35,6 +42,6 @@ spec:
     trustIssuerCA: true
   managed:
     enabled: true
-    image: docker.onedata.org/onezone-dev:develop
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-livegrow-hw1
     imagePullSecrets:
-      - docker-onedata-org
+      - harbor-dev-pull

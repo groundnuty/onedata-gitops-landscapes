@@ -28,12 +28,17 @@ kind: Kustomization
 # 2. Because the Oneprovider image is `-dev` NIGHTLY lineage (built
 #    FROM docker.onedata.org/oneprovider-dev:develop, not the vanilla
 #    21.02.7 release), the Onezone image MUST be the matching `-dev`
-#    nightly lineage too (docker.onedata.org/onezone-dev:develop) --
-#    pairing a `-dev` provider with a vanilla-release zone is a
-#    confirmed defect (m3-live-proof.md §2: permanent GS refusal,
-#    "Onezone version: 21.02.7 not compatible"). This needs the
-#    external docker-onedata-org imagePullSecret, same prerequisite
-#    sv-posix-multinode/v1 already documents.
+#    nightly lineage too -- pairing a `-dev` provider with a
+#    vanilla-release zone is a confirmed defect (m3-live-proof.md §2:
+#    permanent GS refusal, "Onezone version: 21.02.7 not compatible").
+#    Per the it.209 "Harbor for everything" directive, this does NOT
+#    use the docker.onedata.org registry / docker-onedata-org
+#    imagePullSecret pattern sv-posix-multinode/v1 used (that predates
+#    the directive): `docker.onedata.org/onezone-dev:develop` was
+#    pulled once on large-dev and pushed to Harbor's private `dev`
+#    project instead (`dev/onezone-dev:develop-livegrow-hw1`), so this
+#    landscape has zero docker.onedata.org dependency at deploy time --
+#    same `harbor-dev-pull` secret as everything else here.
 # 3. spec.managed.topology.growMode: Live on the Oneprovider CR (the
 #    whole point of this landscape) -- starts at workerNodes: 1
 #    (small footprint baseline), bumped to 2 (then possibly 3, subject

@@ -22,12 +22,16 @@ images + a v0.6.1 operator pin), with two deltas:
    image leaving large-dev -- never any Onedata registry, never Docker
    Hub.
 2. **The Onezone image must match the `-dev` nightly lineage.**
-   `docker.onedata.org/onezone-dev:develop`, not the vanilla release --
-   pairing a `-dev` nightly provider with a vanilla-release zone is a
+   Pairing a `-dev` nightly provider with a vanilla-release zone is a
    confirmed defect (`m3-live-proof.md` §2: permanent GraphSync
-   refusal on a version mismatch). Needs the external
-   `docker-onedata-org` imagePullSecret, same prerequisite
-   `sv-posix-multinode/v1` documents.
+   refusal on a version mismatch) -- but per the it.209 "Harbor for
+   everything" directive this does NOT pull from docker.onedata.org
+   directly (that pattern predates the directive; `sv-posix-multinode/
+   v1` used it). Instead `docker.onedata.org/onezone-dev:develop` was
+   pulled once on large-dev (already-authenticated) and pushed to
+   Harbor's private `dev` project as `dev/onezone-dev:
+   develop-livegrow-hw1`, pulled with the same `harbor-dev-pull`
+   secret as everything else in this landscape.
 
 The operator image itself stays the plain, already-proven
 `harbor.../dev/onedata-operator:v0.6.1` -- `growMode: Live` merged into
@@ -56,16 +60,14 @@ was built or pushed for this landscape.
 
 ## External prerequisites (not created by this repo)
 
-- **`docker-onedata-org` imagePullSecret**, in the `sv-livegrow`
-  namespace, holding real credentials for the private
-  `docker.onedata.org` registry -- genuine infra credentials,
-  deliberately *not* committed here. Same prerequisite
-  `sv-posix-multinode/v1` already documents; copy/recreate from that
-  namespace's existing secret of the same name (or the maintainer's
-  canonical source) into `sv-livegrow`.
-- **`make harbor-pull-secret NS=sv-livegrow`** -- both the operator
-  image and the patched Oneprovider image are in Harbor's private
-  `dev` project.
+- **`make harbor-pull-secret NS=sv-livegrow`** -- the operator image,
+  the patched Oneprovider image, AND the `-dev`-lineage Onezone image
+  are ALL in Harbor's private `dev` project (per the it.209 "Harbor
+  for everything" directive; no docker.onedata.org dependency in this
+  landscape). Canonical credential source: the `harbor-dev-robot`
+  Secret in ns `onedata-gitops-harbor` -- the same mechanism every
+  other Harbor-private-project consumer in this repo uses, not a new
+  one.
 - **`onedata-dev-ca` ClusterIssuer Ready** (`make dev-ca-deploy`) --
   same TLS prerequisite as v2.
 - Steps 1-3 of the top-level README's mandatory deploy sequence
