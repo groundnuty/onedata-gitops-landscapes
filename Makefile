@@ -302,6 +302,62 @@ harbor-pull-secret: ## Create/update the harbor-dev-pull imagePullSecret (from h
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "secret/$(HARBOR_PULL_SECRET_NAME) ready in namespace $(NS). Reference it via imagePullSecrets on the consuming ServiceAccount/Pod."
 
+## --- Upstream-image snapshot discipline (it.230 standing policy) -----------
+# NEVER deploy a mutable Onedata tag (`develop`/`latest` on
+# docker.onedata.org, or a Docker-Hub release tag pulled via
+# dockerhub-proxy) straight into a landscape -- Onedata's `develop` ==
+# `latest`, contents unknown/same-day-unstable (it.229: two local
+# `:develop` pulls 3 days apart already differed). Instead, snapshot the
+# EXACT image you just validated into Harbor's private `dev` project
+# under a DATED tag; a landscape pins that dated tag, never the mutable
+# one. Updating an existing dated snapshot is a conscious decision
+# (FORCE=1), never a side effect of re-running this target.
+SNAPSHOTS_FILE ?= images/SNAPSHOTS.md
+
+.PHONY: snapshot-image
+snapshot-image: ## Snapshot SRC (a mutable upstream image ref) into Harbor's `dev` project as NAME:<src-tag>-DATE (it.230). Requires make harbor-login first. NOPULL=1 skips the pull and snapshots whatever SRC already resolves to locally (use when SRC was pulled+validated earlier and a fresh pull could silently swap bits under a mutable tag). DATE defaults to today (YYYYMMDD). FORCE=1 overwrites an existing dated tag -- otherwise the target refuses, since overwriting a snapshot is meant to be a conscious decision, not an accident.
+	@if [ -z "$(SRC)" ] || [ -z "$(NAME)" ]; then \
+		echo "usage: make snapshot-image SRC=<source-image-ref> NAME=<harbor-dev-repo-name> [DATE=YYYYMMDD] [NOPULL=1] [FORCE=1]" >&2; exit 1; fi
+	@if echo "$(HARBOR_HOST)" | grep -q "CHANGEME"; then echo "HARBOR_DOMAIN still has the CHANGEME placeholder -- run 'make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io' first." >&2; exit 1; fi
+	@srctag="$$(echo '$(SRC)' | sed -n 's/.*:\([^:\/]*\)$$/\1/p')"; \
+	if [ -z "$$srctag" ]; then srctag="latest"; fi; \
+	snapdate="$(DATE)"; if [ -z "$$snapdate" ]; then snapdate="$$(date +%Y%m%d)"; fi; \
+	target_tag="$${srctag}-$${snapdate}"; \
+	target="$(HARBOR_HOST)/dev/$(NAME):$${target_tag}"; \
+	echo "=== snapshot-image: $(SRC) -> $${target} ==="; \
+	if [ "$(NOPULL)" = "1" ]; then \
+		echo "NOPULL=1 -- using whatever $(SRC) already resolves to in the local docker daemon (NOT re-pulling, to avoid silently swapping bits under a mutable tag)."; \
+	else \
+		echo "+ docker pull $(SRC)"; docker pull "$(SRC)"; \
+	fi; \
+	if ! docker image inspect "$(SRC)" >/dev/null 2>&1; then \
+		echo "SRC image $(SRC) is not present in the local docker daemon (pull it first, or drop NOPULL=1)." >&2; exit 1; fi; \
+	if [ "$(FORCE)" != "1" ] && docker manifest inspect "$${target}" >/dev/null 2>&1; then \
+		echo "REFUSING: $${target} already exists in Harbor. Overwriting a dated snapshot is a conscious decision (it.230) -- re-run with FORCE=1 if that is genuinely intended." >&2; exit 1; fi; \
+	echo "+ docker tag $(SRC) $${target}"; docker tag "$(SRC)" "$${target}"; \
+	echo "+ docker push $${target}"; \
+	push_out="$$(docker push "$${target}" 2>&1)"; echo "$$push_out"; \
+	digest="$$(echo "$$push_out" | grep -oE 'sha256:[0-9a-f]{64}' | tail -1)"; \
+	[ -n "$$digest" ] || digest="UNKNOWN (not found in push output -- check manually: docker manifest inspect $${target})"; \
+	image_id="$$(docker image inspect "$(SRC)" --format '{{.Id}}')"; \
+	created="$$(docker image inspect "$(SRC)" --format '{{.Created}}')"; \
+	echo; echo "Captured:"; \
+	echo "  source ref     : $(SRC)"; \
+	echo "  harbor target  : $${target}"; \
+	echo "  imageID        : $$image_id"; \
+	echo "  upstream build : $$created"; \
+	echo "  repo digest    : $$digest"; \
+	mkdir -p "$$(dirname $(SNAPSHOTS_FILE))"; \
+	if [ ! -f "$(SNAPSHOTS_FILE)" ]; then \
+		{ echo "# Upstream-image snapshots (it.230)"; echo; \
+		  echo "See the policy statement in this repo's top-level README / the design log (it.230)."; echo; \
+		  echo "| Snapshot date | Source ref | Harbor target | Upstream build date | Image ID | Digest | Validated by |"; \
+		  echo "|---|---|---|---|---|---|---|"; \
+		} > "$(SNAPSHOTS_FILE)"; \
+	fi; \
+	echo "| $$snapdate | \`$(SRC)\` | \`$${target}\` | $$created | \`$$image_id\` | \`$$digest\` | TODO: fill in before committing | " >> "$(SNAPSHOTS_FILE)"; \
+	echo; echo "Appended a row to $(SNAPSHOTS_FILE) -- EDIT the 'Validated by' column (evidence doc / landscape pointer) before committing."
+
 ## --- Cluster-manager scoping (documented, NOT run by this repo automatically) ---
 
 .PHONY: scope-cluster-manager
