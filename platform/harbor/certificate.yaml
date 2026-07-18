@@ -48,5 +48,5 @@ spec:
   privateKey:
     rotationPolicy: Always
   issuerRef:
-    name: letsencrypt-staging-dns01
+    name: letsencrypt-dns01
     kind: ClusterIssuer
