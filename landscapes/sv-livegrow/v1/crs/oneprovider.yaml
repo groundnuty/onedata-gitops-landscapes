@@ -60,5 +60,5 @@ spec:
         claimName: sv-livegrow-shared-posix
     topology:
       databaseNodes: 1
-      workerNodes: 2
+      workerNodes: 3
       growMode: Live
