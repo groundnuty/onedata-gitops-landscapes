@@ -39,6 +39,10 @@ wave 1: operator         (a namespace-scoped, VERSION-PINNED onedata-operator in
 wave 2: CRs               (Onezone, Oneprovider, StorageBackend, Space, User, Support, ...)
 ```
 
+(Wave 0 is a landscape-level convenience, not mandatory: `sv-posix-multinode/v2`
+omits it entirely, driving TLS directly off each managed CR's own
+`spec.tls` instead -- see that landscape's `kustomization.yaml` for why.)
+
 **The operator version lives IN the landscape, in git, pinned per
 landscape.** This is the whole point (it.176's "dissolves Hole 3"):
 different landscapes can run different operator versions side by side,
@@ -79,6 +83,7 @@ Argo-managed.
 argocd/                       dedicated-namespace Argo CD install + health/ignoreDifferences config
 crds/                          the ONE shared, cluster-scoped CRD set (superset/latest)
 platform/cert-manager-desec/   deSEC DNS-01 webhook solver + Let's Encrypt ClusterIssuers (it.185 real TLS)
+platform/onedata-dev-ca/       cluster-singleton shared dev CA ClusterIssuer (it.194-196/200/203)
 platform/harbor/               cluster-singleton Harbor (proxy-cache + dev push target; it.178/179/183; LE TLS via it.185)
 landscapes/<name>/<version>/   a full hermetic landscape's manifests, wave-annotated
 applications/
@@ -143,6 +148,14 @@ other over the same CRs. See `scripts/scope-cluster-manager.sh`.
 own explicit, auditable action. Running `deploy-landscape` before 1-3
 land is a foot-gun this repo will not paper over.
 
+**Re-run step 2 (`make apply-crds`) before deploying a landscape that
+needs a CRD field newer than what is currently applied** -- e.g.
+`sv-posix-multinode/v2` needs `spec.tls.trustIssuerCA`, added to
+`crds/` alongside that landscape per the superset-bump rule in
+`crds/README.md`. `apply-crds` is safe to re-run any number of times
+(additive-only, idempotent) -- it is a "once per cluster **per CRD
+bump**", not strictly "once ever".
+
 > **This scaffold did not run any of the four steps above.** Building
 > the repo's content (and validating it renders/schema-checks) is this
 > task's scope; deploying to k8s-one is an explicit, separate, gated
@@ -185,6 +198,29 @@ same gating as every landscape. See `platform/harbor/README.md` +
 "Using the Harbor proxy-cache from a landscape" below for how a
 landscape actually consumes Harbor once deployed.
 
+### Optional platform app: onedata-dev-ca (it.194-196/200/203)
+
+`platform/onedata-dev-ca/` -- a shared, cluster-singleton CA
+`ClusterIssuer` every dev landscape's managed Onezone/Oneprovider CRs
+can point their own `spec.tls.issuerRef` at (plus
+`spec.tls.trustIssuerCA: true`) instead of always needing a public
+Let's Encrypt name. **Independent of Harbor/cert-manager-desec and of
+the four-step mandatory sequence** -- only needs Argo CD to already
+exist:
+
+```
+make argocd-install   # if not already done
+make dev-ca-deploy
+```
+
+See `platform/onedata-dev-ca/README.md` for the full design (why a
+third CA-type `ClusterIssuer`, why it deploys into the pre-existing
+`cert-manager` namespace, rotation caveats) and
+`landscapes/sv-posix-multinode/v2/README.md` for the reference
+landscape that consumes it. **GATED, same as every platform app in
+this repo:** schema-valid and dry-run-clean, NOT yet applied to
+k8s-one.
+
 ### Everyday targets
 
 ```sh
@@ -204,6 +240,7 @@ make harbor-ui                             # port-forward the Harbor UI (localho
 make harbor-login                          # docker login to Harbor's `dev` project from large-dev (robot account; real LE TLS, no insecure-registry config)
 make harbor-push IMAGE=...                 # tag + push an image into Harbor's `dev` project
 make harbor-pull-secret NS=...             # create the imagePullSecret for Harbor's `dev` project in namespace NS
+make dev-ca-deploy                         # apply the onedata-dev-ca platform Application (gated; it.194-196/200/203)
 ```
 
 ## Landscapes
@@ -211,8 +248,9 @@ make harbor-pull-secret NS=...             # create the imagePullSecret for Harb
 | Name | Version | What it proves | Operator image |
 |---|---|---|---|
 | [`sv-posix-multinode`](landscapes/sv-posix-multinode/v1/README.md) | `v1` | `spec.managed.storageVolume` on a real RWX `nfs-xattr` PVC + `workerNodes: 2` (it.161/164) -- the multi-worker shared-posix feature | `groundnuty/onedata-operator:v0.6.0` (**forward reference -- see landscape README**) |
+| [`sv-posix-multinode`](landscapes/sv-posix-multinode/v2/README.md) | `v2` | SAME feature as v1, "productionized" (it.196/203): dev-CA TLS (`trustIssuerCA`) + Harbor images (operator from the `dev` project, Onedata components via `dockerhub-proxy`) + NetworkPolicy-default-off. Deploys ALONGSIDE v1, own namespace | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1` (**forward reference -- see landscape README**) |
 
-## Harbor: proxy-cache + dev push target (it.178/179/183; real LE TLS via it.185)
+## Harbor: proxy-cache + dev push target (it.178/179/183; real LE TLS via it.185; DEFAULT image path since it.203)
 
 `platform/harbor/` (Argo Application: `applications/platform/harbor.yaml`)
 is a cluster-singleton, GATED like every landscape -- see
@@ -270,14 +308,28 @@ existed is gone. (The deleted large-dev-side workaround lives in git
 history, commit `a76bc97`, should plaintext ever need resurrecting.)
 
 Separately, this pattern covers plain `spec.containers[].image`
-fields. It does **not** reach an `onedata.org` CR's own image spec field (e.g. a future
-`Oneprovider.spec.image`/`Onezone.spec.image`, if one is ever added) --
-those are custom CRD schema fields, not the standard PodSpec path
-kustomize's `images:` transformer understands structurally. Rewriting
-those would need a `replacements:`/JSON6902 patch targeting the
-specific field path instead -- not needed by any landscape in this repo
-today (none currently expose a raw image field on their CRs), noted
-here so the gap doesn't get rediscovered the hard way later.
+fields. It does **not** reach an `onedata.org` CR's own image spec
+field -- `Oneprovider.spec.managed.image`/`Onezone.spec.managed.image`
+(these already exist, and are what a managed CR uses to select its own
+Onezone/Oneprovider component image) are custom CRD schema fields, not
+the standard PodSpec path kustomize's `images:` transformer understands
+structurally. Rewriting those via the overlay pattern above would need
+a `replacements:`/JSON6902 patch targeting the specific field path
+instead.
+
+**`sv-posix-multinode/v2` is the first landscape to actually reference
+a Harbor path on one of these CR image fields** (design it.203) --
+`crs/onezone.yaml`/`crs/oneprovider.yaml` set
+`spec.managed.image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/{onezone,oneprovider}:21.02.7`
+directly as a **literal value in the base manifest**, not through a
+kustomize overlay -- simpler than a JSON6902 patch when a landscape
+commits to Harbor from the start (as v2 does) rather than layering it
+on top of an existing public-ref base (as the operator-image overlay
+example above does for a *hypothetical* landscape that wants both
+options). The `replacements:`/JSON6902-overlay gap noted above still
+applies to any landscape that wants to keep a portable base *and*
+optionally rewrite a CR's own image field via overlay -- not needed by
+v2, which commits to the Harbor ref outright.
 
 ### The it.183 exception: patched/experimental images are NOT portable
 
@@ -310,8 +362,51 @@ since TLS-v2 the Service name is not a valid registry endpoint for
 containerd -- see `platform/harbor/README.md`'s "Exposure and TLS
 (v2)".)
 
-This is the **only** documented exception to the public-refs
-principle -- every landscape in the table above keeps portable refs.
+This was, at the time it.183 was written, the **only** documented
+exception to the public-refs principle. **it.203 adds a second, of a
+different character** -- see immediately below.
+
+### it.203: Harbor promoted from "available exception" to DEFAULT image path
+
+The it.178 baseline above (public/durable refs; Harbor as accelerator,
+never the canonical home) was the right call while Harbor was new and
+unproven. Once it.198's first live deploy proved Harbor's TLS chain and
+config-as-code end to end, the maintainer's it.203 directive promoted
+Harbor to the **default image path for every landscape going forward**:
+operator images push to the `dev` project, Onedata component images
+route through `dockerhub-proxy`. `sv-posix-multinode/v2` is the
+reference implementation (see its own README's image-pin table).
+
+**This is NOT the same as the it.183 exception**, even though both
+reference the `dev` project, and it is worth being precise about the
+difference:
+
+- **it.183** authorizes referencing the `dev` project for an image that
+  has **no public equivalent at all** (a locally patched core build) --
+  the landscape referencing it is *structurally* non-portable; there is
+  no fallback ref to fall back to.
+- **it.203 / v2's operator image** (`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1`)
+  is an **unmodified, otherwise-public release** -- the SAME bits are
+  also pushed to Docker Hub as `groundnuty/onedata-operator:v0.6.1` per
+  it.203's own directive. v2 pins the Harbor ref by **policy choice**
+  (this cluster's own hardware, per the maintainer's directive), not
+  because a public equivalent doesn't exist. A cluster without this
+  Harbor could substitute the Docker Hub ref for the identical bits --
+  v2 itself does not, by design.
+- **v2's Onedata *component* images** (`dockerhub-proxy/onedata/{onezone,oneprovider}:21.02.7`)
+  are a third, more benign case still: `dockerhub-proxy` is a
+  **proxy-cache of an already-public image**, not a push target at all
+  -- the portable fallback is simply dropping the `dockerhub-proxy/`
+  prefix and pulling `onedata/{onezone,oneprovider}:21.02.7` straight
+  from Docker Hub. No exception, no non-portability -- purely an
+  accelerator, exactly what `dockerhub-proxy` was designed for.
+
+**Practical upshot for future landscape authors:** default to the
+Harbor-prefixed refs (operator image from `dev`, component images via
+`dockerhub-proxy`, `make harbor-pull-secret NS=...` for whichever
+namespace needs the private pull) unless there's a specific reason not
+to (e.g. a landscape meant to be reproduced on a cluster with no
+Harbor of its own).
 
 ### The pull-secret pattern: `make harbor-pull-secret`
 
@@ -345,10 +440,12 @@ imagePullSecrets:
   - name: harbor-dev-pull
 ```
 
-or directly on a Pod spec via `spec.imagePullSecrets`. Not wired into
-any landscape in this repo today (none currently pull from `dev` --
-`sv-posix-multinode` pins a public `groundnuty/onedata-operator` ref)
--- this is the documented pattern for the first one that does.
+or directly on a Pod spec via `spec.imagePullSecrets`. First wired up
+by `sv-posix-multinode/v2` (`operator/serviceaccount.yaml`) -- its
+operator image comes from the `dev` project (it.203), so it needs
+exactly this: `make harbor-pull-secret NS=sv-posix-multinode-v2` before
+that landscape's operator pod can pull. (`v1`, still pinning the public
+`groundnuty/onedata-operator:v0.6.0` ref, needs none of this.)
 
 ## Argo CD config notes (see `argocd/README.md` for the full writeup)
 

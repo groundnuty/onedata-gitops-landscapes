@@ -78,12 +78,27 @@ help: ## Show this help.
 	@echo "  d. make certmanager-desec-deploy                            # webhook solver + letsencrypt ClusterIssuers"
 	@echo "  e. make harbor-deploy && make harbor-configure              # Harbor itself (TLS via the harbor-tls Certificate)"
 	@echo
+	@echo "onedata-dev-ca (design it.194-196/200/203) -- shared dev-CA ClusterIssuer, independent of the above:"
+	@echo "  make dev-ca-deploy   # only needs argocd-install; a landscape opts in via spec.tls.issuerRef+trustIssuerCA"
+	@echo
 	@echo "Nothing in this Makefile targets a live cluster by default -- 'make validate' only renders/schema-checks."
 
 ## --- CRDs (the one shared, cluster-scoped resource) -----------------------
 
 .PHONY: apply-crds
 apply-crds: ## Apply the superset/latest onedata.org + testing.onedata.org CRDs (cluster-scoped, once per cluster; see crds/README.md).
+	# Checked against the same it.198-defect-#1 annotation-size class as
+	# argocd-install (see that target's comment): plain client-side
+	# `kubectl apply` computes a last-applied-configuration annotation
+	# whose JSON form must stay under the Kubernetes 256KiB
+	# (262144-byte) total-annotation-size limit. Measured 2026-07-18
+	# (`yq -o=json` on each crds/*.yaml, largest first): oneproviders
+	# ~171.6KB, onezones ~163.3KB -- both comfortably under the ceiling
+	# (~90KB/~99KB headroom), unlike argocd/vendor/install-v3.4.4.yaml's
+	# ApplicationSet CRD (~1.4MB) or Applications CRD (~368KB). Plain
+	# `apply -k` stays correct here; revisit this measurement if any
+	# onedata.org CRD's schema grows substantially (e.g. another large
+	# additive field block).
 	kubectl apply -k crds/
 
 .PHONY: diff-crds
@@ -94,7 +109,24 @@ diff-crds: ## Show what `apply-crds` would change, without applying it.
 
 .PHONY: argocd-install
 argocd-install: ## Install Argo CD into the dedicated onedata-gitops-argocd namespace (cluster-wide RBAC, NOT publicly exposed).
-	kubectl apply -k argocd/
+	# --server-side --force-conflicts, NOT plain `apply -k` (it.198 deploy
+	# defect #1, closed here): argocd/vendor/install-v3.4.4.yaml's
+	# ApplicationSet CRD alone is ~1.4MB and the Applications CRD ~368KB
+	# once client-side `kubectl apply` tries to compute a
+	# last-applied-configuration annotation for either -- both blow past
+	# the Kubernetes 256KiB total-annotation-size limit (a known
+	# upstream Argo CD issue; verified 2026-07-18: `kubectl apply -k
+	# argocd/` fails outright on this on ANY cluster, not just k8s-one).
+	# The first live deploy (research/gitops-first-deploy.md) hit this
+	# and was worked around BY HAND with --server-side; that workaround
+	# was never folded back into this target, so every subsequent
+	# `make argocd-install` would re-hit it. Server-side apply computes
+	# no such annotation at all (it tracks field ownership instead), so
+	# the size ceiling does not apply. --force-conflicts is needed for
+	# re-applies (e.g. a version bump) so this target stays idempotent
+	# even if a prior client-side apply (or a different field manager)
+	# already owns some fields.
+	kubectl apply --server-side --force-conflicts -k argocd/
 	@echo "Waiting for the argocd-server Deployment to become available..."
 	kubectl -n $(ARGOCD_NAMESPACE) rollout status deploy/argocd-server --timeout=300s
 	@echo "Installed. Run 'make argocd-login' then 'make argocd-ui'."
@@ -196,6 +228,20 @@ dns-record: ## Idempotently PATCH the deSEC A rrset: $(HARBOR_DOMAIN) -> HARBOR_
 .PHONY: certmanager-desec-deploy
 certmanager-desec-deploy: ## Apply the cert-manager-desec platform Application (GATED -- requires make argocd-install first; deploy AFTER desec-token + dns-record, BEFORE harbor-deploy).
 	kubectl apply -f applications/platform/cert-manager-desec.yaml
+
+## --- onedata-dev-ca (cluster-singleton platform app; design it.194-196/200/203) ---
+# The shared development CA every dev landscape's managed Onezone/
+# Oneprovider CRs can point spec.tls.issuerRef at (kind: ClusterIssuer)
+# + spec.tls.trustIssuerCA: true, instead of always needing a public
+# Let's Encrypt name. Independent of the mandatory landscape sequence
+# and of the Harbor/cert-manager-desec chain -- only needs Argo CD to
+# already exist. See platform/onedata-dev-ca/README.md for the full
+# design (why a third ClusterIssuer, why it deploys into the
+# pre-existing cert-manager namespace, rotation caveats).
+
+.PHONY: dev-ca-deploy
+dev-ca-deploy: ## Apply the onedata-dev-ca platform Application (GATED -- requires make argocd-install first; independent of Harbor/cert-manager-desec).
+	kubectl apply -f applications/platform/onedata-dev-ca.yaml
 
 ## --- Harbor (cluster-singleton platform app; it.178/179/183 + it.185 TLS) ---
 # Independent of the mandatory landscape sequence -- only needs Argo CD

@@ -1,0 +1,123 @@
+# onedata-dev-ca -- the shared development CA for TLS across every dev
+# landscape (design it.194/195/196; the operator-side half MERGED
+# it.200 -- spec.tls.trustIssuerCA + the cacerts_dir mount).
+#
+# The classic cert-manager in-cluster-PKI bootstrap
+# (research/dev-ca-trust-design.md S5): a SelfSigned Issuer signs
+# exactly one thing -- the onedata-dev-ca CA Certificate itself
+# (isCA: true) -- whose Secret then backs a CA ClusterIssuer that signs
+# every dev landscape's ACTUAL leaf certificates (via each managed
+# Onezone/Oneprovider's own spec.tls.issuerRef, consumed by the
+# operator's cert-MVP, it.168/190 -- unchanged, issuer-agnostic).
+#
+#   SelfSigned Issuer --signs--> CA Certificate (onedata-dev-ca)
+#                                     |  secretName: onedata-dev-ca
+#                                     v
+#                               CA ClusterIssuer (onedata-dev-ca) --signs--> every landscape's leaf certs
+#
+# Deploys INTO the pre-existing `cert-manager` namespace -- NOT a
+# dedicated namespace of its own, same choice
+# platform/cert-manager-desec/ made and for the identical reason: a
+# ClusterIssuer's secretName Secret is looked up in cert-manager's
+# cluster-resource-namespace (default = the `cert-manager` namespace
+# cert-manager itself runs in; see cert-manager-desec/cluster-
+# issuers.yaml's own note about desec-token living there), so this
+# CA's Secret must live there too, not in some other namespace.
+#
+# WHY A THIRD ClusterIssuer on a cluster that already has
+# `cluster-ca`/`selfsigned` (research/dev-ca-trust-design.md's recon)
+# and now also `letsencrypt-dns01`/`letsencrypt-staging-dns01`
+# (platform/cert-manager-desec/): isolation + independent rotation
+# (research/dev-ca-trust-design.md S5's recommendation) -- a
+# purpose-scoped CA dedicated to onedata-gitops-landscapes dev
+# landscapes is cleaner to reason about, rotate, and (later) hand to
+# trust-manager (Option B in that design doc, not built here) than
+# reusing a pre-existing general-purpose cluster CA whose other
+# consumers we don't control.
+#
+# NOT for anything that needs a BROWSER-trusted public name -- Harbor's
+# registry stays on letsencrypt-dns01 (it.185/186); this CA is for
+# landscape-INTERNAL component-to-component TLS only (provider<->zone
+# GraphSync, inter-provider rtransfer, onepanel<->zone registration,
+# oneclient<->provider), where "no rate limits, no external DNS
+# dependency, instant issuance, works air-gapped/minikube" beats
+# "browser-trusted" (research/dev-ca-trust-design.md S5's comparison
+# table). A landscape opts in with:
+#
+#   spec:
+#     tls:
+#       issuerRef: { name: onedata-dev-ca, kind: ClusterIssuer }
+#       trustIssuerCA: true
+#
+# on EACH managed Onezone/Oneprovider CR (see
+# landscapes/sv-posix-multinode/v2/crs/{onezone,oneprovider}.yaml for
+# the reference wiring).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: onedata-dev-ca-selfsigned
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: onedata-dev-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selfSigned: {}
+---
+# The CA certificate itself: isCA: true is what makes cert-manager
+# populate the issued Secret's `ca.crt` field with a certificate that
+# has the CA basic-constraint set (verified cert-manager behavior,
+# context7 docs -- same fact the it.195 recon used to confirm CA/
+# SelfSigned issuers populate ca.crt while ACME issuers never do).
+# Long-lived and ECDSA (small, fast, no RSA-vs-ECDSA compatibility
+# concern for a root that only ever signs leaves inside this cluster's
+# own component trust stores) -- a root CA's identity should not churn
+# the way a 90-day leaf does; every landscape pointed at the resulting
+# ClusterIssuer, and every trustIssuerCA-mounted cacerts_dir entry
+# across every dev landscape's pods, breaks on a CA rotation, so this
+# is deliberately NOT tuned for frequent renewal. duration/renewBefore
+# below still let cert-manager auto-renew the ROOT itself well before
+# its own 10y mark; a full manual re-key (and a re-trust of every
+# landscape) is a deliberate, rare, out-of-band operation, not
+# something this file automates.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: onedata-dev-ca
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: onedata-dev-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  isCA: true
+  commonName: onedata-gitops-landscapes dev CA
+  secretName: onedata-dev-ca
+  duration: 87600h # 10y -- a root, not a leaf; long-lived by design
+  renewBefore: 2160h # 90d heads-up before the 10y mark
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: onedata-dev-ca-selfsigned
+    kind: Issuer
+---
+# The CA ClusterIssuer every dev landscape's managed Onezone/
+# Oneprovider CRs point their own spec.tls.issuerRef at. Cluster-scoped
+# (no namespace field) -- available to every landscape namespace,
+# exactly the "cluster-singleton platform app" shape this file's header
+# describes.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: onedata-dev-ca
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: onedata-dev-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ca:
+    secretName: onedata-dev-ca

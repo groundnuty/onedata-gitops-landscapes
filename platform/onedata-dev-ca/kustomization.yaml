@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# onedata-dev-ca, the cluster-singleton platform app that gives every
+# dev landscape a shared, rate-limit-free, air-gap-friendly CA to issue
+# TLS from (design it.194/195/196/200/203). Ordered by
+# argocd.argoproj.io/sync-wave annotations baked into
+# ca-issuer-chain.yaml, same convention as every other platform app:
+#
+#   wave 0  Issuer/onedata-dev-ca-selfsigned    the bootstrap self-signed issuer
+#   wave 1  Certificate/onedata-dev-ca          the CA cert itself (isCA: true)
+#   wave 2  ClusterIssuer/onedata-dev-ca        signs every landscape's leaf certs
+#
+# No kustomize `namespace:` transformer needed: the Issuer and
+# Certificate both carry an explicit, correct metadata.namespace:
+# cert-manager already (see ca-issuer-chain.yaml's header for why), and
+# the ClusterIssuer is cluster-scoped (no namespace field to rewrite).
+resources:
+  - ca-issuer-chain.yaml

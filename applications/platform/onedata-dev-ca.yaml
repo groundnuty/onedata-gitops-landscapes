@@ -1,0 +1,43 @@
+# Root Application for onedata-dev-ca, the cluster-singleton shared
+# development CA (design it.194-196/200/203). Applied individually
+# (`make dev-ca-deploy`), same "no auto-discovery root Application"
+# discipline as harbor.yaml and cert-manager-desec.yaml.
+#
+# SEQUENCING: only needs Argo CD to already exist (`make
+# argocd-install`) -- independent of Harbor and cert-manager-desec
+# (this CA is not used to issue Harbor's own certificate; Harbor stays
+# on letsencrypt-dns01 for its browser/registry-trusted public name).
+# A dev landscape that wants dev-CA TLS needs this app synced +
+# Healthy (its ClusterIssuer Ready) BEFORE that landscape's managed
+# Onezone/Oneprovider CRs (which reference
+# `spec.tls.issuerRef: {name: onedata-dev-ca, kind: ClusterIssuer}`)
+# sync -- see landscapes/sv-posix-multinode/v2/README.md's gated
+# deploy order for the concrete example.
+#
+# GATED, same as harbor.yaml/cert-manager-desec.yaml: schema-valid and
+# dry-run-clean today (`make validate`); NOT yet applied to k8s-one.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: onedata-dev-ca
+  namespace: onedata-gitops-argocd
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: onedata-dev-ca
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/groundnuty/onedata-gitops-landscapes.git
+    targetRevision: master
+    path: platform/onedata-dev-ca
+  destination:
+    server: https://kubernetes.default.svc
+    # The pre-existing cert-manager namespace -- NOT created by this
+    # app (CreateNamespace stays off; cert-manager already runs there,
+    # same reasoning as cert-manager-desec.yaml's own destination).
+    namespace: cert-manager
+  syncPolicy:
+    # No automated.prune / automated.selfHeal, same safety call as
+    # every other platform app: syncs only when explicitly told to.
+    syncOptions:
+      - CreateNamespace=false
