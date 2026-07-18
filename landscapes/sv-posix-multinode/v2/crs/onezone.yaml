@@ -7,11 +7,17 @@
 #    landscape's own separate, UNWIRED self-signed Issuer+Certificate
 #    sitting inert alongside it -- see v1's README "HONEST GAP"). The
 #    operator's cert-MVP (it.168/190) is issuer-agnostic, so this is a
-#    values-only change; trustIssuerCA: true (it.200, MERGED) is what
-#    makes provider<->zone GraphSync/rtransfer/onepanel<->zone
+#    values-only change. trustIssuerCA (it.200, MERGED) is what would
+#    make provider<->zone GraphSync/rtransfer/onepanel<->zone
 #    registration actually TRUST the issued leaf, not just serve it --
 #    see platform/onedata-dev-ca/README.md and
-#    research/dev-ca-trust-design.md for the full why.
+#    research/dev-ca-trust-design.md for the design -- BUT it.238
+#    DE-MINES it from this file (Finding 11, see oneprovider.yaml's
+#    header for the full why: trustIssuerCA crashes op_worker's
+#    rtransfer_link on a managed Oneprovider, core-side bug, no
+#    operator-side fix possible until patch 0013 lands in a deployed
+#    image). issuerRef-only stays: it still issues Onezone's own web
+#    cert from the shared CA.
 #
 # 2. spec.managed.image: the PUBLIC onedata/onezone:21.02.7 Docker Hub
 #    image, via Harbor's `dockerhub-proxy` proxy-cache project
@@ -48,7 +54,6 @@ spec:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
-    trustIssuerCA: true
   managed:
     enabled: true
     image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/onezone:21.02.7

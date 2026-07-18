@@ -7,8 +7,9 @@
 # v2 deltas from v1's crs/oneprovider.yaml (design it.196/203) -- same
 # two changes as crs/onezone.yaml, mirrored here:
 #
-# 1. spec.tls: onedata-dev-ca ClusterIssuer + trustIssuerCA: true (see
-#    onezone.yaml's header for the full why).
+# 1. spec.tls: onedata-dev-ca ClusterIssuer, issuerRef ONLY (see
+#    onezone.yaml's header for the full why, and for the Finding 11
+#    de-mine this file also received).
 #
 # 2. spec.managed.image: harbor.../dockerhub-proxy/onedata/
 #    oneprovider:21.02.7 (public image, proxy-cached, no
@@ -18,6 +19,30 @@
 #
 # storageVolume/topology are UNCHANGED from v1 -- same feature, same
 # shape, just a different namespace and image source.
+#
+# DE-MINED (it.238, Finding 11): trustIssuerCA: true removed. Finding
+# 11 (evidence research/rtransfer-cafix.md, design log it.221/it.225)
+# root-caused trustIssuerCA on a MANAGED Oneprovider to a Fizz-TLS
+# uncaught exception in op_worker's rtransfer_config:make_ca_bundle/0
+# -- ANY unpaired trust-anchor cert in the ssl_ca_path bundle (ours or
+# vanilla) is treated as an identity candidate requiring a matching
+# key and crashes rtransfer_link in an unbounded zero-backoff respawn
+# loop; core-side only, no operator-side mount composition can fix it
+# (a CA cert genuinely has no matching key). Controlled A/B fully
+# disproved both operator-side hypotheses -- trustIssuerCA:true is
+# KNOWN-BROKEN with a managed Oneprovider until the core fix
+# (rtransfer_config.erl) reaches the deployed image. issuerRef-only
+# (this file, now) is the supported shape: it still issues our web
+# cert via the shared onedata-dev-ca ClusterIssuer, it just does not
+# add that CA to op_worker's own trust store. Practical consequence:
+# this Oneprovider's onepanel<->Onezone TLS handshake relies on
+# whatever trust the operator's cert-MVP otherwise establishes, NOT on
+# trustIssuerCA -- see platform/onedata-dev-ca/README.md for the
+# current story and sv-livegrow/v1/README.md's "dev-CA TLS status"
+# note for why sv-livegrow could not make the same trade (it needs
+# trustIssuerCA for registration to complete at all, and eats the
+# crash-loop as a known, operationally-mitigated cost until patch 0013
+# lands in a deployed image).
 apiVersion: onedata.org/v1alpha1
 kind: Oneprovider
 metadata:
@@ -37,7 +62,6 @@ spec:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
-    trustIssuerCA: true
   managed:
     enabled: true
     image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/oneprovider:21.02.7

@@ -8,14 +8,23 @@ rough edges v1 carried closed out:
 
 | | v1 | v2 |
 |---|---|---|
-| TLS | operator default self-signed + a separate, UNWIRED self-signed Issuer+Certificate (honest gap) | `spec.tls.issuerRef` -> the shared `onedata-dev-ca` ClusterIssuer + `trustIssuerCA: true` (design it.194-196/200) |
-| Operator image | `groundnuty/onedata-operator:v0.6.0` (public Docker Hub) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1` (Harbor's private `dev` project, design it.203) |
-| Onezone/Oneprovider images | `docker.onedata.org/{onezone,oneprovider}-dev:develop` (private registry + external `docker-onedata-org` imagePullSecret) | `harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/{onezone,oneprovider}:21.02.7` (Harbor's public proxy-cache of a PUBLIC Docker Hub image; no imagePullSecret needed for these two) |
-| NetworkPolicy | additive landscape-side Couchbase-ports shim (`crs/networkpolicy-couchbase.yaml`, working around an operator-chart defect) | GONE -- the chart's own it.201 fix + it.202's NetworkPolicy-default-OFF flip in v0.6.1 make the shim unnecessary |
+| TLS | operator default self-signed + a separate, UNWIRED self-signed Issuer+Certificate (honest gap) | `spec.tls.issuerRef` -> the shared `onedata-dev-ca` ClusterIssuer, **`trustIssuerCA` REMOVED** (design it.194-196/200 introduced it; it.238/Finding 11 removed it again -- crashes a managed Oneprovider's `rtransfer_link`, core-side bug, no operator-side fix possible until patch 0013 lands in a deployed image; see `crs/oneprovider.yaml`'s header) |
+| Operator image | `groundnuty/onedata-operator:v0.6.0` (public Docker Hub) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` (Harbor's private `dev` project, design it.203; bumped from v0.6.1 by the it.230/it.238 sweep) |
+| Onezone/Oneprovider images | `docker.onedata.org/{onezone,oneprovider}-dev:develop` (private registry + external `docker-onedata-org` imagePullSecret) | `harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/{onezone,oneprovider}:21.02.7` (Harbor's public proxy-cache of a PUBLIC Docker Hub image; no imagePullSecret needed for these two -- noted as a release-tag re-pin candidate in `images/SNAPSHOTS.md`, not yet digest-pinned) |
+| NetworkPolicy | additive landscape-side Couchbase-ports shim (`crs/networkpolicy-couchbase.yaml`, working around an operator-chart defect) | GONE -- the chart's own it.201 fix + it.202's NetworkPolicy-default-OFF flip (v0.6.1 onward) make the shim unnecessary |
 | Namespace | `sv-posix-multinode` (RUNNING, left untouched) | `sv-posix-multinode-v2` (separate; does not collide with v1) |
 
 Deliberately deployed **alongside** v1, not in place of it -- v1 stays
 running in its own namespace for as long as the maintainer wants it.
+
+**Status as of the it.230/it.238 re-pin:** v2 was deployed once (proving
+dev-CA TLS trust, Harbor-pull, and the multi-node RWX/CDMI payoff --
+`research/gitops-v2-deploy.md`), then deliberately TORN DOWN
+(disk-pressure capacity decision, unrelated to this sweep) and has not
+been redeployed since. The operator-image bump to v0.6.3 and the
+Finding-11 `trustIssuerCA` removal below are therefore purely git-side
+-- redeploying from git is exactly the reproducible-from-git property
+this landscape exists to prove.
 
 ## Sync waves
 
@@ -31,21 +40,22 @@ CR's own `spec.tls`, consumed by the operator's cert-MVP at CR-apply
 time (wave 2), closing v1's "issued but unwired" honest gap via the
 real path instead of carrying a dead placeholder forward.
 
-## Image pins -- TWO forward references, not yet deployable
+## Image pins
 
-1. **`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1`**
-   (`operator/deployment.yaml`) does **not yet exist** as of this
-   scaffold. Per design it.203, v0.6.1 will be cut carrying the it.200
-   `trustIssuerCA` mount (MERGED, operator master `b406b86`), the
-   it.201 disterl-NetworkPolicy Couchbase-ports fix + onepanel
-   bootstrap-task retry heal (MERGED, `d44fc97`/`6e627e8`), and the
-   it.202 NetworkPolicy-default-OFF flip (**queued** as of this build,
-   a separate operator-repo agent/branch) -- THEN pushed to both
-   Harbor's `dev` project and Docker Hub
-   (`groundnuty/onedata-operator:v0.6.1`) per it.203's directive,
-   before this landscape's first gated deploy. **Do not deploy until
-   all three merges are confirmed on the operator's master AND the
-   image is confirmed pullable from Harbor.**
+1. **`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3`**
+   (`operator/deployment.yaml`). The original scaffold's v0.6.1 forward
+   reference shipped and was live-deployed; the it.230/it.238
+   upstream-image-snapshot sweep bumped the pin to v0.6.3, which
+   carries forward v0.6.1's it.200 `trustIssuerCA` mount, it.201
+   disterl-NetworkPolicy Couchbase-ports fix, it.202
+   NetworkPolicy-default-OFF flip, and onepanel bootstrap-task retry
+   heal, plus v0.6.2/v0.6.3's GS-check + dual-binding truthful-status
+   work (design log it.233/it.235/it.237) on top. Also pushed to Docker
+   Hub as `groundnuty/onedata-operator:v0.6.3` per it.203's directive
+   (this landscape pins the Harbor ref by policy choice, not necessity
+   -- see the top-level README's Harbor section). Before this bump
+   reaches a live cluster, (re-)run
+   `make harbor-pull-secret NS=sv-posix-multinode-v2`.
 
 2. **The `onedata-dev-ca` ClusterIssuer** (`platform/onedata-dev-ca/`,
    referenced by both `crs/onezone.yaml` and `crs/oneprovider.yaml`'s
@@ -81,7 +91,7 @@ make dev-ca-deploy
 # Harbor must already be deployed + configured (v1's own prerequisite
 # chain -- set-harbor-domain, desec-token, dns-record,
 # certmanager-desec-deploy, harbor-deploy, harbor-configure) and
-# groundnuty/onedata-operator:v0.6.1 must be pushed into its `dev`
+# groundnuty/onedata-operator:v0.6.3 must be pushed into its `dev`
 # project (see "Image pins" above) BEFORE the next two steps:
 make harbor-pull-secret NS=sv-posix-multinode-v2     # the operator image pull secret (private `dev` project)
 
@@ -103,7 +113,7 @@ namespace.
   (needs Harbor's `dev` project + robot credential already configured).
   Referenced by `operator/serviceaccount.yaml`.
 - **`groundnuty/onedata-operator` (or the Harbor `dev`-project
-  equivalent) `v0.6.1`** pullable -- see "Image pins" above.
+  equivalent) `v0.6.3`** pullable -- see "Image pins" above.
 - **The `onedata-dev-ca` ClusterIssuer** `Ready` -- see "Image pins"
   above.
 - Steps 1-3 of the top-level README's mandatory deploy sequence

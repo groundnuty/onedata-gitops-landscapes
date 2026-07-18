@@ -2,13 +2,15 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # sv-posix-multinode/v2 -- the reproducible-from-git "productionized"
-# successor to v1 (design it.196/203): dev-CA TLS (issuerRef +
-# trustIssuerCA against the onedata-dev-ca ClusterIssuer) + Harbor
-# images (operator from the private `dev` project, Onedata components
-# via the public `dockerhub-proxy` proxy-cache) + a v0.6.1 operator pin
-# (NetworkPolicy default-off, it.202; the it.201 Couchbase-ports chart
-# fix; the it.200 trustIssuerCA mount) + every it.198 deploy-fix v1
-# already carries. Deploys into its OWN namespace
+# successor to v1 (design it.196/203): dev-CA TLS (issuerRef against
+# the onedata-dev-ca ClusterIssuer -- trustIssuerCA REMOVED, it.238,
+# Finding 11: it crashes managed-Oneprovider rtransfer_link, see
+# crs/oneprovider.yaml's header) + Harbor images (operator from the
+# private `dev` project, Onedata components via the public
+# `dockerhub-proxy` proxy-cache) + a v0.6.3 operator pin (NetworkPolicy
+# default-off, it.202; the it.201 Couchbase-ports chart fix; bumped
+# from the original v0.6.1 by the it.230/it.238 sweep) + every it.198
+# deploy-fix v1 already carries. Deploys into its OWN namespace
 # (sv-posix-multinode-v2) -- the RUNNING v1 landscape (namespace
 # sv-posix-multinode) is left completely undisturbed.
 #
