@@ -25,5 +25,6 @@ resources:
   - operator/deployment.yaml
   - crs/secrets.yaml
   - crs/storage-pvc.yaml
+  - crs/networkpolicy-couchbase.yaml
   - crs/onezone.yaml
   - crs/oneprovider.yaml

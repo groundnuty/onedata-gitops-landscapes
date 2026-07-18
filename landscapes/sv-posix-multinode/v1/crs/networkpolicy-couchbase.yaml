@@ -1,0 +1,52 @@
+# Wave 2, alongside the CRs: SUPPLEMENTARY NetworkPolicy fixing a real
+# operator-chart defect surfaced by this first k8s-one deploy
+# (it.176-191). The chart-wrap embedded it.154-P5 disterl policy
+# (internal/deploy/charts/oneprovider/templates/networkpolicy.yaml)
+# allows same-deployment ingress ONLY on epmd 4369 + disterl 9100-9139,
+# plus unrestricted 80/443/6665/9443 -- and NOTHING for Couchbase. On a
+# CNI that actually enforces NetworkPolicy (k8s-one runs cilium;
+# minikube CT runs never enforced, which is why this never bit before),
+# a policy selecting a pod default-denies every unlisted port, so the
+# role-split op_worker pods (1,2) could not reach Couchbase on the
+# database pod (0): service_op_worker:start died with
+# couchbase_config:get_buckets -> {badmatch,{error,connect_timeout}} on
+# BOTH workers, Oneprovider Degraded at task step 21/32.
+#
+# NetworkPolicies are ADDITIVE (union of allows), so this second policy
+# selecting the same pods cleanly grants the missing Couchbase client
+# ports without touching the pinned operator image. Peer-restricted to
+# the same deployment labels, same posture as the disterl rule.
+# FLAGGED UPSTREAM (operator repo): the chart template must carry these
+# ports itself in the next operator release; this manifest is the
+# landscape-side mitigation until this landscape pins that release.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: provider-oneprovider-couchbase
+  namespace: sv-posix-multinode
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: provider-oneprovider
+      component: oneprovider
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: provider-oneprovider
+              component: oneprovider
+      ports:
+        # Couchbase REST/mgmt + views/query/search/analytics/eventing
+        - port: 8091
+          endPort: 8096
+          protocol: TCP
+        # Couchbase data (memcached binary + TLS variants)
+        - port: 11207
+          endPort: 11211
+          protocol: TCP
