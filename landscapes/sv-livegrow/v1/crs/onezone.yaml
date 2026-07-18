@@ -35,22 +35,33 @@ spec:
     name: onezone-admin-account
   onepanelCredentialsSecretRef:
     name: onezone-onepanel-creds
-  # trustIssuerCA intentionally OFF (Finding 11, research/rtransfer-cafix.md):
-  # a bare CA-trust cert in cacerts_dir with no matching private key
-  # crash-loops rtransfer_link ~4.5-5x/sec, dumping ~7.6MB core files per
-  # crash into the pod's writable layer and filling it in 7-9min -- root-
-  # caused as core-side (rtransfer_config:make_ca_bundle/0's naive
-  # concatenation feeding Fizz/Wangle's identity-loading CA-bundle parser),
-  # confirmed unfixable via any operator-side mount composition (live A/B
-  # on minikube: issuerRef-only, no trustIssuerCA, ran 3+min with ZERO
-  # rtransfer_link crashes; re-adding a bare CA cert -- shadowed or
-  # additive -- crashed every time). issuerRef-only web-TLS (below) is
-  # that proven-clean arm; de-mined here so this landscape can run long
-  # enough for the scale-down/replace hardware proofs (hw-elasticity-2.md).
+  # trustIssuerCA back ON -- REVERTS the it.209-session de-mine attempt,
+  # same day, same landscape (see git history: "remove trustIssuerCA").
+  # research/rtransfer-cafix.md's minikube A/B found trustIssuerCA's bare
+  # CA-trust cert (no matching key) crash-loops rtransfer_link and
+  # concluded issuerRef-only (trustIssuerCA off) was a clean, working
+  # arm. Live-reproduced on THIS k8s-one hardware landscape with the
+  # DYNAMIC_MEMBERSHIP-patched image, that conclusion does NOT hold:
+  # (1) the rtransfer_link core-dump crash-loop (~3-4x/sec, Finding 11's
+  # ORIGINAL universal mechanism, livegrow-hardware.md Sec.6) persisted
+  # IDENTICALLY with trustIssuerCA off and cacerts_dir back to its pure
+  # vanilla 2-file shape -- so trustIssuerCA was never the crash's cause
+  # on this hardware/image combination, only compounds it on minikube's
+  # narrower vanilla-image test; (2) WORSE, trustIssuerCA off actively
+  # BROKE registration: Oneprovider's onepanel could not TLS-connect to
+  # Onezone at all ("wait_cert_cr ... Fatal - Unknown CA",
+  # od_error_no_connection_to_onezone) because trustIssuerCA is what
+  # makes onepanel trust the shared onedata-dev-ca ClusterIssuer that
+  # ALSO signed Onezone's own web cert -- issuerRef alone issues OUR
+  # cert but does not add the issuing CA to OUR trust store. Restored
+  # to true so registration can complete; the crash-loop is mitigated
+  # operationally (not fixed) via a disk-guard core-dump-cleanup loop
+  # for the duration of the hardware proofs -- see hw-elasticity-2.md.
   tls:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
+    trustIssuerCA: true
   managed:
     enabled: true
     image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-livegrow-hw1
