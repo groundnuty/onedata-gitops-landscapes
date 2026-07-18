@@ -3,13 +3,27 @@
 # -- no real DNS/ingress in this landscape either (same known gap as
 # every demo/ landscape in the operator repo).
 #
-# PREREQUISITE (external, NOT created by this repo): an imagePullSecret
-# named docker-onedata-org must already exist in the sv-posix-multinode
-# namespace, holding real credentials for the private
-# docker.onedata.org registry. This is genuine infra credentials, not a
-# demo value -- it is deliberately NOT committed here, unlike
-# crs/secrets.yaml's demo creds. Same prerequisite as demo/landscape-3p
-# and demo/landscape-max.
+# IMAGE (it.230/it.238 re-pin): was docker.onedata.org/onezone-dev
+# :develop, a mutable tag pulled from the private docker.onedata.org
+# registry (external docker-onedata-org imagePullSecret). Per the
+# it.230 standing policy (never deploy a mutable Onedata tag) this now
+# points at the exact image already snapshotted into Harbor's private
+# `dev` project -- images/SNAPSHOTS.md, second row -- pulled from THIS
+# same docker.onedata.org/onezone-dev:develop ref, upstream build
+# 2026-07-12 (paired -dev lineage with oneprovider.yaml's snapshot;
+# mismatched lineages are a confirmed GraphSync-refusal defect,
+# research/m3-live-proof.md §2). Pull secret is now harbor-dev-pull,
+# same mechanism sv-posix-multinode/v2 and sv-livegrow already use --
+# see operator/serviceaccount.yaml and this landscape's README. The
+# docker-onedata-org prerequisite is DROPPED.
+#
+# PREREQUISITE (external, NOT created by this repo): the harbor-dev-pull
+# imagePullSecret must exist in the sv-posix-multinode namespace --
+# `make harbor-pull-secret NS=sv-posix-multinode` (needs Harbor's `dev`
+# project + robot credential already configured; see the top-level
+# README's "The pull-secret pattern"). Genuine infra credentials, not a
+# demo value -- correctly NOT committed here, unlike crs/secrets.yaml's
+# demo creds.
 apiVersion: onedata.org/v1alpha1
 kind: Onezone
 metadata:
@@ -25,6 +39,6 @@ spec:
     name: onezone-onepanel-creds
   managed:
     enabled: true
-    image: docker.onedata.org/onezone-dev:develop
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260718
     imagePullSecrets:
-      - docker-onedata-org
+      - harbor-dev-pull

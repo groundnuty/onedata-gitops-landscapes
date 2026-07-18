@@ -12,8 +12,17 @@
 # onezoneRef.name (token-minting) and onezoneRef.endpoint (chart-value
 # wiring) are required.
 #
-# PREREQUISITE: same external docker-onedata-org imagePullSecret as
-# onezone.yaml -- see its header comment.
+# IMAGE (it.230/it.238 re-pin): was docker.onedata.org/oneprovider-dev
+# :develop, a mutable tag pulled from the private docker.onedata.org
+# registry (external docker-onedata-org imagePullSecret). Per the
+# it.230 standing policy (never deploy a mutable Onedata tag) this now
+# points at the exact image already snapshotted into Harbor's private
+# `dev` project -- images/SNAPSHOTS.md, first row -- pulled from THIS
+# same docker.onedata.org/oneprovider-dev:develop ref, upstream build
+# 2026-07-15. Pull secret is now harbor-dev-pull, same mechanism
+# sv-posix-multinode/v2 and sv-livegrow already use (see
+# operator/serviceaccount.yaml and this landscape's README's "External
+# prerequisites"); the docker-onedata-org prerequisite is DROPPED.
 apiVersion: onedata.org/v1alpha1
 kind: Oneprovider
 metadata:
@@ -31,9 +40,9 @@ spec:
     name: provider-onepanel-creds
   managed:
     enabled: true
-    image: docker.onedata.org/oneprovider-dev:develop
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260718
     imagePullSecrets:
-      - docker-onedata-org
+      - harbor-dev-pull
     storageVolume:
       persistentVolumeClaim:
         claimName: sv-posix-multinode-shared-posix

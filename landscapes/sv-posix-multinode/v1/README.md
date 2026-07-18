@@ -29,23 +29,31 @@ wave  1   operator/                    namespace-scoped onedata-operator, --watc
 wave  2   crs/                         demo Secrets, the storageVolume PVC, Onezone, Oneprovider
 ```
 
-## Image pin -- FORWARD REFERENCE, not yet deployable
+## Image pins (it.230/it.238 re-pin -- RUNNING landscape, git updated in place)
 
-`operator/deployment.yaml` pins **`groundnuty/onedata-operator:v0.6.0`**,
-which **does not exist yet** as of this scaffold. `v0.6.0` will be
-tagged and published once the in-flight cold-scale-up work merges to
-`master`, **before** this landscape's first gated deploy. This
-landscape structurally needs a post-`v0.5.0` build:
-`spec.managed.storageVolume` and `spec.managed.topology.workerNodes`
-(it.161/164) both post-date the currently-deployed `v0.5.0` image, which
-would **silently drop** them rather than erroring (no schema in
-`v0.5.0` knows either field exists) -- exactly the danger the top-level
-README's mandatory-sequence step 1 (`scope-cluster-manager`) exists to
-contain for every *other* landscape, and the reason this landscape
-cannot simply reuse `v0.5.0` for itself either.
+This landscape has been running on k8s-one since its original v0.6.0
+gated deploy. Its original scaffold pinned three mutable/public refs;
+all three are re-pinned as of the it.230 upstream-image-snapshot sweep
+(it.238), the SAME treatment `sv-posix-multinode/v2` and `sv-livegrow`
+already had from their own first deploy:
 
-**Do not run `make deploy-landscape NAME=sv-posix-multinode VERSION=v1`
-until `groundnuty/onedata-operator:v0.6.0` is confirmed pullable.**
+| | Before | After (it.230/it.238) |
+|---|---|---|
+| Operator image | `groundnuty/onedata-operator:v0.6.0` (public Docker Hub) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` |
+| Oneprovider image | `docker.onedata.org/oneprovider-dev:develop` (mutable, private registry) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260718` (dated snapshot, `images/SNAPSHOTS.md`) |
+| Onezone image | `docker.onedata.org/onezone-dev:develop` (mutable, private registry) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260718` (dated snapshot, `images/SNAPSHOTS.md`) |
+| Pull secret | external `docker-onedata-org` | `harbor-dev-pull` (`make harbor-pull-secret NS=sv-posix-multinode`) -- same mechanism v2/sv-livegrow use |
+
+**This is a git-only change as of this sweep.** `syncPolicy` here is
+deliberately manual (no `automated.selfHeal`/`prune` -- see
+`applications/landscapes/sv-posix-multinode-v1.yaml`), so nothing on
+the live cluster changes until someone runs an explicit
+`argocd app sync` (or `kubectl apply -k` by hand) against this
+directory. Whoever does that sync should first run
+`make harbor-pull-secret NS=sv-posix-multinode` (the new
+`harbor-dev-pull` secret does not exist in this namespace yet) --
+otherwise the operator and both component pods will fail to pull on
+their next restart.
 
 ## Known gap: StorageBackend/User/Space/Support are a day-2 step
 
@@ -78,14 +86,12 @@ it.176 asked for.
 
 ## External prerequisites (not created by this repo)
 
-- **`docker-onedata-org` imagePullSecret**, in the `sv-posix-multinode`
-  namespace, holding real credentials for the private
-  `docker.onedata.org` registry -- genuine infra credentials, correctly
-  *not* committed here (unlike `crs/secrets.yaml`'s demo creds). Same
-  prerequisite `demo/landscape-3p`/`demo/landscape-max` already
-  document.
-- **`groundnuty/onedata-operator:v0.6.0`** pullable from Docker Hub --
-  see "Image pin" above.
+- **`harbor-dev-pull` imagePullSecret**, in the `sv-posix-multinode`
+  namespace -- created by `make harbor-pull-secret NS=sv-posix-multinode`
+  (needs Harbor's `dev` project + robot credential already configured).
+  Referenced by `operator/serviceaccount.yaml`, `crs/oneprovider.yaml`,
+  and `crs/onezone.yaml`. Replaces the old `docker-onedata-org`
+  prerequisite as of the it.230/it.238 re-pin -- see "Image pins" above.
 - Steps 1-3 of the top-level README's mandatory deploy sequence
   (`scope-cluster-manager`, `apply-crds`, `argocd-install`) already
   applied to the target cluster.

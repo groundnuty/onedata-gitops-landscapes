@@ -6,19 +6,19 @@
 # landscape" model, no cluster-wide-manager fighting.
 #
 # ============================================================
-# IMAGE PIN -- READ BEFORE DEPLOYING (forward reference):
+# IMAGE PIN (it.230/it.238 re-pin, superseding the original scaffold's
+# v0.6.0 forward-reference note -- v0.6.0 shipped long ago):
 # ============================================================
-# groundnuty/onedata-operator:v0.6.0 does NOT YET EXIST on Docker Hub as
-# of this scaffold. It is a FORWARD reference: v0.6.0 will be tagged and
-# published once the in-flight cold-scale-up work merges to master,
-# BEFORE this landscape's first gated deploy. This landscape needs a
-# post-v0.5.0 build specifically for `spec.managed.storageVolume` +
-# `spec.managed.topology.workerNodes` (it.161/164) -- v0.5.0 (the
-# currently-deployed k8s-one image) predates both fields and would
-# SILENTLY DROP them (see the top-level README's mandatory deploy
-# sequence step 1 for why that is dangerous even for OTHER landscapes,
-# not just this one). Do not `docker push` or `make deploy-landscape`
-# against this manifest until v0.6.0 is confirmed to exist.
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3 --
+# Harbor's private `dev` project (design it.203 "Harbor for
+# everything"), same image every other landscape in this repo now
+# pins. Was groundnuty/onedata-operator:v0.6.0 (public Docker Hub, no
+# pull secret) -- bumped straight to v0.6.3 as part of the it.230
+# upstream-image-snapshot sweep (it.238), matching
+# sv-posix-multinode/v2 and sv-livegrow/v1's operator pins. Needs the
+# harbor-dev-pull imagePullSecret (see serviceaccount.yaml and this
+# landscape's README's "External prerequisites") -- the previously-bare
+# public-image pull needs none, but the private `dev` project does.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -54,7 +54,7 @@ spec:
       containers:
         - name: manager
           # See the IMAGE PIN note at the top of this file.
-          image: groundnuty/onedata-operator:v0.6.0
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3
           command: ["/manager"]
           args:
             - --leader-elect
