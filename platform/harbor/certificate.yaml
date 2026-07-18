@@ -38,7 +38,7 @@ spec:
   # later option for Argo CD UI etc. (mentioned in
   # platform/cert-manager-desec/README.md, not built).
   dnsNames:
-    - harbor.CHANGEME.dedyn.io
+    - harbor.k8s-one-onedata.dedyn.io
   # Let's Encrypt issues 90d certs regardless of what's requested;
   # renewBefore 30d matches cert-manager's own default posture and
   # keeps ~3 renewals/quarter -- far inside LE's 5-duplicates/week

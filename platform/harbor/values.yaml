@@ -56,7 +56,7 @@ expose:
 # externalURL affects the docker-login/pull hints Harbor's UI prints
 # AND the token-service URL returned to docker clients -- with TLS it
 # must be the https://<cert-SAN>:<https-nodePort> form.
-externalURL: https://harbor.CHANGEME.dedyn.io:30003
+externalURL: https://harbor.k8s-one-onedata.dedyn.io:30003
 
 persistence:
   enabled: true

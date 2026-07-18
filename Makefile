@@ -25,7 +25,7 @@ HARBOR_INTERNAL_HOST ?= harbor.onedata-gitops-harbor.svc.cluster.local
 # maintainer's deSEC account + domain exist. Resolves via the deSEC A
 # record (`make dns-record`) to ONE node's InternalIP; the NodePort is
 # reachable on all 22 nodes.
-HARBOR_DOMAIN ?= harbor.CHANGEME.dedyn.io
+HARBOR_DOMAIN ?= harbor.k8s-one-onedata.dedyn.io
 # The deSEC zone = the registered domain (dedyn.io is on the Public
 # Suffix List, so <name>.dedyn.io is its own LE rate-limit bucket).
 DEDYN_DOMAIN  ?= $(patsubst harbor.%,%,$(HARBOR_DOMAIN))
@@ -154,13 +154,13 @@ delete-landscape: ## Delete a landscape's root Application (NAME=... VERSION=...
 # certmanager-desec-deploy -> harbor-deploy.
 
 .PHONY: set-harbor-domain
-set-harbor-domain: ## One-shot: rewrite the harbor.CHANGEME.dedyn.io placeholder repo-wide to DOMAIN=harbor.<name>.dedyn.io (then review `git diff` + commit).
+set-harbor-domain: ## One-shot: rewrite the harbor.k8s-one-onedata.dedyn.io placeholder repo-wide to DOMAIN=harbor.<name>.dedyn.io (then review `git diff` + commit).
 	@if [ -z "$(DOMAIN)" ] || echo "$(DOMAIN)" | grep -q "CHANGEME"; then \
 		echo "usage: make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io" >&2; exit 1; fi
 	@echo "$(DOMAIN)" | grep -Eq '^harbor\.[a-z0-9-]+\.dedyn\.io$$' || \
 		{ echo "DOMAIN must look like harbor.<name>.dedyn.io (got: $(DOMAIN))" >&2; exit 1; }
 	@files="$$(git grep -l 'harbor\.CHANGEME\.dedyn\.io' -- . || true)"; \
-	if [ -z "$$files" ]; then echo "No harbor.CHANGEME.dedyn.io placeholders left -- already set?"; exit 0; fi; \
+	if [ -z "$$files" ]; then echo "No harbor.k8s-one-onedata.dedyn.io placeholders left -- already set?"; exit 0; fi; \
 	echo "$$files" | xargs sed -i "s/harbor\.CHANGEME\.dedyn\.io/$(DOMAIN)/g"; \
 	echo "Rewrote placeholder in:"; echo "$$files" | sed 's/^/  /'; \
 	echo "Review with 'git diff', then commit -- Argo syncs from git, not your working tree."

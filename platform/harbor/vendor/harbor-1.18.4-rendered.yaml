@@ -200,7 +200,7 @@ data:
   POSTGRESQL_SSLMODE: "disable"
   POSTGRESQL_MAX_IDLE_CONNS: "100"
   POSTGRESQL_MAX_OPEN_CONNS: "900"
-  EXT_ENDPOINT: "https://harbor.CHANGEME.dedyn.io:30003"
+  EXT_ENDPOINT: "https://harbor.k8s-one-onedata.dedyn.io:30003"
   CORE_URL: "http://harbor-core:80"
   JOBSERVICE_URL: "http://harbor-jobservice"
   REGISTRY_URL: "http://harbor-registry:5000"

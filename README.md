@@ -194,7 +194,7 @@ make list-landscapes                       # what's under landscapes/
 make delete-landscape NAME=... VERSION=... # remove a landscape's root Application (and, per its syncPolicy, its resources)
 make argocd-uninstall                      # tear down the Argo CD install
 make validate                              # kustomize build + kubectl create --dry-run=client everywhere
-make set-harbor-domain DOMAIN=...          # one-shot: rewrite the harbor.CHANGEME.dedyn.io placeholder repo-wide
+make set-harbor-domain DOMAIN=...          # one-shot: rewrite the harbor.k8s-one-onedata.dedyn.io placeholder repo-wide
 make desec-token TOKEN=...                 # the real deSEC token -> cluster Secret (NEVER git)
 make dns-record HARBOR_NODE_IP=...         # idempotent deSEC A record for the Harbor name
 make certmanager-desec-deploy              # apply the cert-manager-desec platform Application (gated)
@@ -247,7 +247,7 @@ resources:
   - ../.. # the base landscape, unmodified
 images:
   - name: groundnuty/onedata-operator
-    newName: harbor.CHANGEME.dedyn.io:30003/dockerhub-proxy/groundnuty/onedata-operator
+    newName: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/groundnuty/onedata-operator
     # newTag: left unset -- keeps whatever tag the base kustomization pinned
     # (the CHANGEME placeholder is rewritten repo-wide by `make
     # set-harbor-domain`; the name resolves via the deSEC A record and
@@ -301,7 +301,7 @@ point of use:
 # maintainer-authorized exception). NOT groundnuty/onedata-operator or
 # any onedata/* image; unpullable on any other cluster. See
 # platform/harbor/README.md's "it.183" section.
-image: harbor.CHANGEME.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
+image: harbor.k8s-one-onedata.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
 ```
 
 (The public dedyn.io name, not the `*.svc.cluster.local` Service DNS

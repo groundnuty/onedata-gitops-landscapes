@@ -102,7 +102,7 @@ parts for their own sake:
   unchanged from v1.
 - **The name, not an IP, is now the endpoint.** `make set-harbor-domain
   DOMAIN=harbor.<name>.dedyn.io` rewrites the committed
-  `harbor.CHANGEME.dedyn.io` placeholder repo-wide (values.yaml,
+  `harbor.k8s-one-onedata.dedyn.io` placeholder repo-wide (values.yaml,
   certificate.yaml, the vendored render's baked `EXT_ENDPOINT`, the
   Makefile default) in one reviewed commit. Certificates are issued to
   names; hardcoded node IPs stop appearing in client configuration
@@ -281,7 +281,7 @@ comment at the reference site reading something like:
 # groundnuty/onedata-operator or any onedata/* image, and pulling this
 # manifest on any other cluster without its own equivalent Harbor will
 # fail. See platform/harbor/README.md's "it.183" section.
-image: harbor.CHANGEME.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
+image: harbor.k8s-one-onedata.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
 ```
 
 This is the ONLY documented exception to the it.178 public-refs
