@@ -22,3 +22,22 @@ patches:
     target:
       kind: ConfigMap
       name: argocd-cm
+  # kustomize's namespace transformer does not rewrite subjects[].namespace
+  # on cluster-scoped ClusterRoleBinding objects (only on namespaced
+  # RoleBinding objects) -- these three explicit patches fix the vendored
+  # install.yaml's hardcoded `namespace: argocd` subject to point at
+  # onedata-gitops-argocd instead. See each patch file's header for the
+  # live-cluster evidence. Discovered + fixed during the it.176-191 first
+  # live GitOps deploy.
+  - path: clusterrolebinding-namespace-patch-app-controller.yaml
+    target:
+      kind: ClusterRoleBinding
+      name: argocd-application-controller
+  - path: clusterrolebinding-namespace-patch-applicationset-controller.yaml
+    target:
+      kind: ClusterRoleBinding
+      name: argocd-applicationset-controller
+  - path: clusterrolebinding-namespace-patch-server.yaml
+    target:
+      kind: ClusterRoleBinding
+      name: argocd-server

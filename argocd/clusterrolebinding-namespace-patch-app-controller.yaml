@@ -1,0 +1,23 @@
+# See kustomization.yaml comment: kustomize's built-in namespace
+# transformer does not rewrite subjects[].namespace on cluster-scoped
+# ClusterRoleBinding objects -- only on namespaced RoleBinding objects
+# (verified: every RoleBinding in the rendered output correctly got
+# namespace: onedata-gitops-argocd on both the object and its subject;
+# all three ClusterRoleBindings kept the vendored install.yaml's
+# hardcoded `namespace: argocd` subject). Left unpatched, the real
+# ServiceAccount -- which runs as
+# system:serviceaccount:onedata-gitops-argocd:argocd-application-controller
+# in this installation -- binds to nothing and has no cluster-scope RBAC
+# at all (verified live via `kubectl auth can-i list deployments.apps
+# --as=...`; the cert-manager-desec Application got stuck at
+# sync.status=Unknown with ComparisonError "deployments.apps is
+# forbidden ... at the cluster scope"). Discovered + fixed during the
+# it.176-191 first live GitOps deploy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-application-controller
+subjects:
+  - kind: ServiceAccount
+    name: argocd-application-controller
+    namespace: onedata-gitops-argocd
