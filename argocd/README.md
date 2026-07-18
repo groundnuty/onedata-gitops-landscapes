@@ -88,3 +88,35 @@ Onedata CRD kind, reading `.status.phase`). CRD-level
 column) -- this patch is the other half: it makes Argo's own
 `Application` health rollup (and therefore the whole-landscape green/red
 tile) key off the exact same field.
+
+## `make argocd-install` uses `--server-side --force-conflicts` (it.198 defect #1, closed)
+
+`argocd/vendor/install-v3.4.4.yaml` bundles two very large CRDs:
+`applicationsets.argoproj.io` (~1.4MB) and `applications.argoproj.io`
+(~368KB). Plain client-side `kubectl apply` computes a
+`kubectl.kubernetes.io/last-applied-configuration` annotation holding
+the whole submitted object as JSON -- and Kubernetes caps total
+annotation size at 256KiB (262144 bytes) per object. Both CRDs blow
+past that ceiling, so `kubectl apply -k argocd/` fails outright on
+**any** cluster, not something k8s-one-specific.
+
+The first live deploy (`research/gitops-first-deploy.md`, defect #1)
+hit exactly this and was worked around by hand with `--server-side`.
+That workaround was never folded back into the `argocd-install` target
+itself, so every subsequent run would re-hit the failure. Fixed here:
+the target now runs `kubectl apply --server-side --force-conflicts -k
+argocd/`. Server-side apply tracks field ownership instead of a
+single monolithic annotation, so the size ceiling never applies;
+`--force-conflicts` keeps the target idempotent across re-runs (a
+version bump, or a prior client-side apply/different field manager
+already owning some fields).
+
+**Checked, not affected:** `crds/` (the onedata.org/testing.onedata.org
+CRD superset) stays on plain client-side `apply -k` -- measured
+2026-07-18 via `yq -o=json` on each file, the largest
+(`onedata.org_oneproviders.yaml`) serializes to ~171.6KB, comfortably
+under the 256KiB ceiling with ~90KB headroom. `platform/harbor/`'s and
+`platform/cert-manager-desec/`'s vendored renders are smaller still
+(54KB and 12KB total, respectively, across ALL their documents
+combined) and pose no risk either. Revisit the `crds/` measurement if
+a future onedata.org CRD schema grows substantially.
