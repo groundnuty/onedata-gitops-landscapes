@@ -9,7 +9,7 @@ kind: Kustomization
 # sv-posix-multinode/v2's productionized pattern:
 #
 #   wave -1  00-namespace.yaml            the namespace itself
-#   wave  1  operator/                    namespace-scoped, v0.6.1 onedata-operator (Harbor `dev` image; growMode:Live is merged into master since it.189)
+#   wave  1  operator/                    namespace-scoped, v0.6.3 onedata-operator (Harbor `dev` image, bumped from v0.6.1 by it.230/it.238; growMode:Live is merged into master since it.189)
 #   wave  2  crs/                         demo Secrets, the RWX storageVolume PVC, Onezone, Oneprovider
 #
 # Deltas from sv-posix-multinode/v2 (see crs/oneprovider.yaml and

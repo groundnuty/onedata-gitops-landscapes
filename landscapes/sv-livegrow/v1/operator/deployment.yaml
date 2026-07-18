@@ -3,14 +3,16 @@
 # sv-livegrow -- never sees, and cannot reconcile, sv-posix-multinode
 # (v1)'s own namespace-scoped operator/CRs or any other landscape's.
 #
-# Image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
-# -- the SAME already-pushed, already-proven image sv-posix-multinode/v2
-# used (design it.209 v2 deploy, 0/6 defect recurrence). growMode:Live
-# is fully merged into operator master as of it.189 and is an ancestor
-# of the v0.6.1 tag (verified: 86d00d2/21272dd/e59804a/b108491/74593b1
-# all `git merge-base --is-ancestor` v0.6.1) -- NO new operator image
-# build or push was needed for this landscape, only the already-Harbor
-# v0.6.1 ref.
+# Image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3
+# -- originally the SAME already-pushed, already-proven v0.6.1 image
+# sv-posix-multinode/v2 used (design it.209 v2 deploy, 0/6 defect
+# recurrence); bumped to v0.6.3 by the it.230/it.238 upstream-image-
+# snapshot sweep, matching every other landscape's operator pin.
+# growMode:Live is fully merged into operator master as of it.189 and
+# is an ancestor of both the v0.6.1 tag (verified:
+# 86d00d2/21272dd/e59804a/b108491/74593b1 all `git merge-base
+# --is-ancestor` v0.6.1) and every tag since -- no new operator image
+# build or push was needed for this landscape, only the version bump.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3
           command: ["/manager"]
           args:
             - --leader-elect

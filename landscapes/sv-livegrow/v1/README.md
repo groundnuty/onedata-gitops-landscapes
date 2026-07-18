@@ -10,7 +10,8 @@ operator's `InitSpaceCaches` RPC).
 Deploys into its own `sv-livegrow` namespace, alongside (never
 in-place-of) `sv-posix-multinode` (v1) -- modeled directly on
 `sv-posix-multinode/v2`'s productionized pattern (dev-CA TLS + Harbor
-images + a v0.6.1 operator pin), with two deltas:
+images + a v0.6.3 operator pin, bumped from v0.6.1 by the it.230/it.238
+sweep), with two deltas:
 
 1. **The Oneprovider image is core-patched, not vanilla.**
    `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-patched:
@@ -33,11 +34,43 @@ images + a v0.6.1 operator pin), with two deltas:
    develop-livegrow-hw1`, pulled with the same `harbor-dev-pull`
    secret as everything else in this landscape.
 
-The operator image itself stays the plain, already-proven
-`harbor.../dev/onedata-operator:v0.6.1` -- `growMode: Live` merged into
-operator master at it.189 and is an ancestor of the v0.6.1 tag
-(verified via `git merge-base --is-ancestor`), so no new operator image
-was built or pushed for this landscape.
+The operator image itself stays the plain, already-proven Harbor `dev`
+image, bumped `v0.6.1 -> v0.6.3` by the it.230/it.238 upstream-image-
+snapshot sweep (see `operator/deployment.yaml`'s header) -- `growMode:
+Live` merged into operator master at it.189 and is an ancestor of every
+tag since (verified via `git merge-base --is-ancestor`), so no new
+operator image was built or pushed for this landscape, just the
+version-number bump.
+
+## dev-CA TLS status: `trustIssuerCA` stays ON here, unlike v2 (it.238)
+
+`crs/oneprovider.yaml` and `crs/onezone.yaml` both keep
+`trustIssuerCA: true` -- this is **deliberately unchanged** by the
+it.230/it.238 sweep, even though `sv-posix-multinode/v2` had the same
+field REMOVED in the same sweep (Finding 11: it crashes a managed
+Oneprovider's `rtransfer_link`, core-side, `research/rtransfer-cafix.md`).
+This landscape already tried the de-mine, on real hardware, earlier in
+its own campaign (git history: `8991fb9` removed it, `a317684` reverted
+the removal same day) and hit the exact bind the design log warned
+about: **`trustIssuerCA` is required here for Onezone registration to
+complete at all** (without it, Oneprovider's onepanel could not
+TLS-connect to Onezone -- `wait_cert_cr ... Fatal - Unknown CA`) **but
+crashes `rtransfer_link` in an unbounded zero-backoff respawn loop**
+(Finding 11's original mechanism, `research/livegrow-hardware.md` §6) --
+there is no setting of this one field that avoids both failure modes on
+this landscape's image/version line. The crash-loop was mitigated
+*operationally*, not fixed, via a disk-guard core-dump-cleanup loop for
+the duration of the hardware proofs.
+
+**Status, plainly: dev-CA landscapes remain blocked on core patch 0013
+(`rtransfer_config.erl` CA-bundle fix, design log it.237) landing in a
+deployed image.** Until then, `spec.tls.issuerRef` with `trustIssuerCA`
+left unset/false (LE-issued or otherwise externally-trusted certs,
+`sv-posix-multinode/v1`'s and now `v2`'s shape) is the only supported
+combination for a managed Oneprovider; a shared dev-CA landscape that
+also needs the Oneprovider to trust that CA (this landscape) has no
+clean option today and is accepting the crash-loop as a known,
+bounded-by-teardown cost specific to this proof campaign.
 
 ## The proof sequence (manual, evidence-gathering -- not automated)
 
