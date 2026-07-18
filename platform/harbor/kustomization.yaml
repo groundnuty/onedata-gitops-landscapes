@@ -7,6 +7,8 @@ kind: Kustomization
 #
 #   wave -1  namespace.yaml                     the namespace itself
 #   wave  0  secrets.yaml                       demo admin + dev-robot creds
+#   wave  0  certificate.yaml                   the Let's Encrypt harbor-tls Certificate (it.185 TLS-v2;
+#                                                needs the cert-manager-desec platform app synced FIRST)
 #   wave  0  harbor-configure-script (generated) the config-as-code script
 #   wave  0  vendor/harbor-1.18.4-rendered.yaml  the vendored `helm template` output
 #   wave  1  config/job.yaml                     one-shot config-as-code Job (registries/projects/robot)
@@ -28,6 +30,7 @@ namespace: onedata-gitops-harbor
 resources:
   - namespace.yaml
   - secrets.yaml
+  - certificate.yaml
   - vendor/harbor-1.18.4-rendered.yaml
   - config/job.yaml
 

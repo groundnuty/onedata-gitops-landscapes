@@ -15,32 +15,48 @@
 # means Argo CD itself never talks to helm.goharbor.io; only whoever
 # re-renders this file locally does.
 
-# --- Exposure: in-cluster Service + NodePort, NOT a public LoadBalancer/Ingress (it.178) ---
+# --- Exposure: in-cluster Service + NodePort, real Let's Encrypt TLS (it.178 -> it.185 v2) ---
 expose:
   type: nodePort
   tls:
-    # HTTP-internal for v1 (it.178's "quick" option): no self-signed-CA
-    # distribution problem for the 22 nodes/large-dev docker daemon to
-    # trust. Trade-off documented in README.md's "Exposure and TLS"
-    # section; a cert-manager-issued cert is the noted v2 follow-up
-    # (same arc as the landscapes' own it.165 TLS work).
-    enabled: false
+    # TLS-v2 (it.185 + the maintainer's deSEC decision): a REAL Let's
+    # Encrypt certificate, issued by the letsencrypt-dns01 ClusterIssuer
+    # (platform/cert-manager-desec/) into the harbor-tls Secret
+    # (certificate.yaml), consumed here via certSource=secret. LE roots
+    # are natively trusted by all 22 nodes' containerd + large-dev's
+    # docker daemon -- the v1 insecure-registry workarounds are GONE,
+    # not configured-around (see README.md's "Exposure and TLS (v2)").
+    enabled: true
+    certSource: secret
+    secret:
+      # cert-manager's Certificate (certificate.yaml) writes tls.crt/
+      # tls.key here. nginx's pod mounts this Secret -- Harbor's front
+      # door does not start until issuance completes (deploy order is
+      # load-bearing; see README.md).
+      secretName: harbor-tls
   nodePort:
     ports:
       http:
         port: 80
+        # Kept rendered (the chart emits both ports when TLS is on),
+        # but nginx now 301-redirects HTTP to the https externalURL --
+        # 30002 is no longer a service endpoint, just a redirect.
+        nodePort: 30002
+      https:
+        port: 443
         # Fixed, not dynamically allocated, so make harbor-login/
         # harbor-push/the landscape pull-secret docs can hardcode it.
-        nodePort: 30002
+        nodePort: 30003
 
-# Placeholder -- replace with an actual k8s-one node's InternalIP at
-# deploy time (see README.md's "Exposure and TLS" section; any of the
-# 22 node IPs works, NodePort is reachable on all of them). Recon during
-# this build read k8s-one-server-0 at 10.87.23.54 as one example.
-# Deliberately left as a placeholder rather than baking in one specific
-# node's IP as a silent assumption -- externalURL only affects the
-# docker-login/pull hints Harbor's own UI prints, not routing.
-externalURL: http://REPLACE-WITH-NODE-IP:30002
+# The one Harbor hostname, resolving (via the deSEC A record --
+# `make dns-record`) to a k8s-one node's InternalIP; the NodePort is
+# reachable on all 22 nodes. `make set-harbor-domain
+# DOMAIN=harbor.<name>.dedyn.io` rewrites the CHANGEME placeholder
+# here, in certificate.yaml, and in the vendored render, in one shot.
+# externalURL affects the docker-login/pull hints Harbor's UI prints
+# AND the token-service URL returned to docker clients -- with TLS it
+# must be the https://<cert-SAN>:<https-nodePort> form.
+externalURL: https://harbor.CHANGEME.dedyn.io:30003
 
 persistence:
   enabled: true

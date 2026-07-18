@@ -1,0 +1,52 @@
+# Wave 0: the real Let's Encrypt certificate for Harbor's public name
+# (it.185 TLS-v2 -- replaces the v1 insecure-HTTP exposure; see
+# README.md's "Exposure and TLS (v2)" and platform/cert-manager-desec/
+# for the issuer side). The chart's nginx consumes the issued Secret
+# via expose.tls.certSource=secret + secretName=harbor-tls
+# (values.yaml). NOTE: nginx's pod mounts this Secret, so Harbor's
+# front door does not start serving until issuance completes -- the
+# deploy order (token -> dns-record -> cert-manager-desec app -> this
+# app) is load-bearing.
+#
+# STAGING-FIRST (do this the first time, before prod -- full rationale
+# in platform/cert-manager-desec/cluster-issuers.yaml's header):
+#   1. flip issuerRef.name below to letsencrypt-staging-dns01 (one
+#      line), sync, wait for READY=True on this Certificate
+#   2. flip back to letsencrypt-dns01, sync, and
+#      kubectl -n onedata-gitops-harbor delete secret harbor-tls
+#      so cert-manager immediately re-issues from prod
+# The committed state is prod: that is the only chain the 22 nodes'
+# containerd + large-dev's docker trust natively, which is the whole
+# point.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: harbor-tls
+  namespace: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  secretName: harbor-tls
+  # The ONE Harbor hostname. `make set-harbor-domain
+  # DOMAIN=harbor.<name>.dedyn.io` rewrites this placeholder (and its
+  # siblings in values.yaml + the vendored render) in one shot -- see
+  # the top-level README. A *.
+  # <name>.dedyn.io wildcard through the same issuer is the documented
+  # later option for Argo CD UI etc. (mentioned in
+  # platform/cert-manager-desec/README.md, not built).
+  dnsNames:
+    - harbor.CHANGEME.dedyn.io
+  # Let's Encrypt issues 90d certs regardless of what's requested;
+  # renewBefore 30d matches cert-manager's own default posture and
+  # keeps ~3 renewals/quarter -- far inside LE's 5-duplicates/week
+  # limit.
+  duration: 2160h # 90d
+  renewBefore: 720h # 30d
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: letsencrypt-dns01
+    kind: ClusterIssuer

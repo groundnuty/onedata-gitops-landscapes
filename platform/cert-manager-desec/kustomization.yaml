@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# cert-manager-desec, the platform app that turns the pre-existing
+# cert-manager install on k8s-one into a REAL Let's Encrypt DNS-01
+# issuer for <name>.dedyn.io (it.185 + the maintainer's deSEC
+# decision). Ordered by argocd.argoproj.io/sync-wave annotations baked
+# into each manifest, same convention as platform/harbor/:
+#
+#   wave 0  vendor/cert-manager-desec-webhook-v1.0.1-rendered.yaml
+#             the vendored webhook solver (Deployment/Service/RBAC/
+#             APIService + its own self-signed serving-cert PKI)
+#   wave 1  cluster-issuers.yaml
+#             letsencrypt-dns01 (prod) + letsencrypt-staging-dns01
+#
+# desec-token.placeholder.yaml is DELIBERATELY absent from resources:
+# the real deSEC token never goes in git and is created out-of-band via
+# `make desec-token TOKEN=...` -- see that file's header and README.md.
+#
+# NO kustomize `namespace:` transformer here, UNLIKE platform/harbor/
+# -- and that difference is load-bearing: the vendored webhook render
+# includes a RoleBinding that MUST land in kube-system (it binds the
+# apiserver-provided extension-apiserver-authentication-reader Role so
+# the webhook can read the requestheader CA bundle). A uniform
+# namespace transformer would silently rewrite it into cert-manager and
+# break the aggregated API's client authentication. Every namespaced
+# resource in the render already carries an explicit, correct
+# metadata.namespace (cert-manager or kube-system), verified at
+# render time.
+resources:
+  - vendor/cert-manager-desec-webhook-v1.0.1-rendered.yaml
+  - cluster-issuers.yaml

@@ -1,0 +1,61 @@
+# Root Application for cert-manager-desec, the platform app that gives
+# the pre-existing cert-manager install a real Let's Encrypt DNS-01
+# path via deSEC (it.185 + the maintainer's deSEC decision). Applied
+# individually (`make certmanager-desec-deploy`), same "no
+# auto-discovery root Application" discipline as harbor.yaml and every
+# landscape.
+#
+# ORDERING vs. harbor: this app must be Healthy (webhook Deployment up,
+# ClusterIssuers present) BEFORE the Harbor app can get its
+# `harbor-tls` Certificate issued -- Harbor's nginx pod won't start
+# serving until that Secret exists. The sync-wave annotation below
+# records that intent declaratively; today, with no app-of-apps (each
+# root Application is applied individually by its own make target),
+# the LOAD-BEARING ordering is the documented make sequence:
+#   make desec-token TOKEN=...   (the real token -> cluster, never git)
+#   make dns-record ...           (A record via deSEC API)
+#   make certmanager-desec-deploy
+#   make harbor-deploy
+# If an app-of-apps root ever appears, the wave annotations (-1 here,
+# unset/0 on harbor.yaml) make it order correctly with zero changes.
+#
+# GATED, same as harbor.yaml and every landscape: schema-valid and
+# dry-run-clean (`make validate`); NOT yet applied to k8s-one.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-desec
+  namespace: onedata-gitops-argocd
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: cert-manager-desec
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/groundnuty/onedata-gitops-landscapes.git
+    targetRevision: master
+    path: platform/cert-manager-desec
+  destination:
+    server: https://kubernetes.default.svc
+    # The pre-existing cert-manager namespace -- NOT created by this
+    # app (CreateNamespace stays off; cert-manager v1.21.0 has run
+    # there since before this repo existed). Only the vendored render's
+    # one kube-system RoleBinding lands elsewhere, by explicit
+    # metadata.namespace.
+    namespace: cert-manager
+  syncPolicy:
+    # No automated.prune / automated.selfHeal, same safety call as
+    # harbor.yaml: platform apps sync when explicitly told to.
+    syncOptions:
+      - CreateNamespace=false
+  ignoreDifferences:
+    # cert-manager's cainjector live-injects the webhook's serving-CA
+    # bundle into the APIService (the cert-manager.io/inject-ca-from
+    # annotation on the vendored render) -- git has no caBundle, the
+    # cluster always will. Structural, permanent, expected.
+    - group: apiregistration.k8s.io
+      kind: APIService
+      jsonPointers:
+        - /spec/caBundle

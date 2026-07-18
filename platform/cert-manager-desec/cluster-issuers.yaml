@@ -1,0 +1,92 @@
+# Wave 1 (after the vendored webhook solver's own wave-0 resources):
+# the two ACME ClusterIssuers this repo's real-TLS story (it.185 + the
+# maintainer's deSEC decision) runs on. Both solve DNS-01 through the
+# desec-webhook aggregated API -- NO HTTP-01, NO internet exposure:
+# the only thing that ever faces the internet is a TXT record on
+# desec.io's nameservers. The cluster itself stays private.
+#
+# STAGING-FIRST, ALWAYS (read before first use): Let's Encrypt PROD
+# rate-limits are real (5 duplicate certificates per exact name-set per
+# week, 50 certs per registered domain per week -- and dedyn.io being
+# on the Public Suffix List means "registered domain" is
+# <name>.dedyn.io, OUR OWN bucket, not one shared with every other
+# dedyn.io user; good, but still finite). Burn NOTHING against prod
+# until the staging issuer has proven the whole chain works:
+#
+#   1. point the Certificate's issuerRef at letsencrypt-staging-dns01
+#   2. wait for READY=True (`kubectl get certificate -A`)
+#   3. flip issuerRef to letsencrypt-dns01, DELETE the staging-issued
+#      Secret (kubectl -n <ns> delete secret <secretName>) so
+#      cert-manager re-issues from prod immediately
+#
+# Staging-issued certs chain to a fake CA ("(STAGING) Pretend Pear ...")
+# that NOTHING trusts -- they prove issuance works, never serve them.
+#
+# NO spec.acme.email, deliberately: the field is OPTIONAL for Let's
+# Encrypt, this is a public-ish repo (no personal address committed,
+# same reasoning as never committing the deSEC token), and Let's
+# Encrypt ended certificate-expiration notification emails in June 2025
+# anyway -- the one thing the address used to buy. cert-manager's own
+# renewal (renewBefore) is the expiry safety net.
+#
+# The token Secret (apiKeySecretRef below) is looked up in
+# cert-manager's cluster-resource-namespace (= the cert-manager
+# namespace, where this whole app deploys) -- created by
+# `make desec-token TOKEN=...`, NEVER committed. Until it exists, both
+# issuers sit at READY=False with a clear "secret not found" message --
+# expected pre-token state, not a defect.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: cert-manager-desec
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  acme:
+    # PROD -- issues real, publicly-trusted certificates. Staging-first
+    # discipline above applies before every first-time name-set.
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      # cert-manager creates + manages this ACME account key itself
+      # (in the cert-manager namespace) -- nothing to provision.
+      name: letsencrypt-dns01-account-key
+    solvers:
+      - dns01:
+          webhook:
+            # Must match platform/cert-manager-desec/values.yaml's
+            # groupName (baked into the vendored APIService/RBAC).
+            groupName: acme.onedata-gitops-landscapes.internal
+            solverName: desec
+            config:
+              apiKeySecretRef:
+                name: desec-token
+                key: token
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging-dns01
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: cert-manager-desec
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  acme:
+    # STAGING -- generous rate limits, untrusted chain. The proving
+    # ground for every first-time issuance (see header comment).
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-dns01-account-key
+    solvers:
+      - dns01:
+          webhook:
+            groupName: acme.onedata-gitops-landscapes.internal
+            solverName: desec
+            config:
+              apiKeySecretRef:
+                name: desec-token
+                key: token

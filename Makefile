@@ -13,18 +13,48 @@ ARGOCD_VERSION   ?= v3.4.4
 KUBECONFIG_PATH  ?= $(KUBECONFIG)
 
 HARBOR_NAMESPACE     ?= onedata-gitops-harbor
+# In-cluster HTTP API access ONLY (the config Job path) -- NOT a docker
+# registry endpoint anymore: the Let's Encrypt cert (it.185 TLS-v2)
+# covers the public dedyn.io name, not *.svc.cluster.local, so every
+# docker/containerd client uses HARBOR_HOST below instead.
 HARBOR_INTERNAL_HOST ?= harbor.onedata-gitops-harbor.svc.cluster.local
-# The 22 k8s-one nodes' external IPs all reach the same NodePort --
-# override with an actual node IP (see platform/harbor/README.md's
-# "Exposure and TLS" section) for harbor-login/harbor-push, which run
-# from OUTSIDE the cluster (large-dev's own docker daemon).
-HARBOR_HOST              ?= REPLACE-WITH-NODE-IP:30002
+
+# --- The Harbor public name (it.185 TLS-v2; deSEC dedyn.io) ---------------
+# `make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io` rewrites the
+# CHANGEME placeholder REPO-WIDE (this default included) once the
+# maintainer's deSEC account + domain exist. Resolves via the deSEC A
+# record (`make dns-record`) to ONE node's InternalIP; the NodePort is
+# reachable on all 22 nodes.
+HARBOR_DOMAIN ?= harbor.CHANGEME.dedyn.io
+# The deSEC zone = the registered domain (dedyn.io is on the Public
+# Suffix List, so <name>.dedyn.io is its own LE rate-limit bucket).
+DEDYN_DOMAIN  ?= $(patsubst harbor.%,%,$(HARBOR_DOMAIN))
+# The node InternalIP the A record points at (pick ANY Ready node --
+# `kubectl get nodes -o wide`; e.g. k8s-one-server-0 was 10.87.23.54 at
+# build time. One IP = one SPOF for the NAME only; re-run dns-record
+# against another node if it dies).
+HARBOR_NODE_IP ?= CHANGEME
+# The docker-facing registry endpoint: HTTPS on the fixed 30003
+# NodePort, genuine Let's Encrypt trust chain -- no insecure-registry
+# config anywhere (the v1 HTTP workarounds are deleted; see git history
+# if you must resurrect plaintext).
+HARBOR_HOST              ?= $(HARBOR_DOMAIN):30003
 HARBOR_PULL_SECRET_NAME  ?= harbor-dev-pull
+
+# Where cert-manager (pre-existing on k8s-one, NOT managed by this
+# repo) runs; the desec-token Secret and the webhook solver live here.
+CERT_MANAGER_NAMESPACE ?= cert-manager
+# `make desec-token` accepts the token as TOKEN=... or via the
+# DESEC_TOKEN env var (keeps it off the make command line / shell
+# history). NEVER commit it -- see
+# platform/cert-manager-desec/README.md's "Token handling".
+TOKEN ?= $(DESEC_TOKEN)
 
 NAME    ?=
 VERSION ?=
 NS      ?=
 IMAGE   ?=
+DOMAIN  ?=
 
 .DEFAULT_GOAL := help
 
@@ -40,8 +70,13 @@ help: ## Show this help.
 	@echo "  3. make argocd-install                               # Argo CD itself, once per cluster"
 	@echo "  4. make deploy-landscape NAME=<name> VERSION=<ver>   # any landscape, any number of times"
 	@echo
-	@echo "Optional platform app (independent of the sequence above, needs argocd-install only):"
-	@echo "  make harbor-deploy && make harbor-configure          # Harbor: proxy-cache + dev push target (it.178/179/183)"
+	@echo "Optional platform apps (independent of the sequence above, need argocd-install only)."
+	@echo "Harbor + real Let's Encrypt TLS (it.178/179/183 + it.185/deSEC) -- THIS order is load-bearing:"
+	@echo "  a. make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io   # once; rewrites the CHANGEME placeholder repo-wide, then commit"
+	@echo "  b. make desec-token TOKEN=<real-desec-token>               # the ONE real credential -> cluster Secret, NEVER git"
+	@echo "  c. make dns-record HARBOR_NODE_IP=<node-InternalIP>        # idempotent deSEC A record for the Harbor name"
+	@echo "  d. make certmanager-desec-deploy                            # webhook solver + letsencrypt ClusterIssuers"
+	@echo "  e. make harbor-deploy && make harbor-configure              # Harbor itself (TLS via the harbor-tls Certificate)"
 	@echo
 	@echo "Nothing in this Makefile targets a live cluster by default -- 'make validate' only renders/schema-checks."
 
@@ -111,11 +146,63 @@ delete-landscape: ## Delete a landscape's root Application (NAME=... VERSION=...
 	echo "Deleting $$app ..."; \
 	kubectl delete -f "$$app" --ignore-not-found
 
-## --- Harbor (cluster-singleton platform app; it.178/179/183) ---------------
+## --- cert-manager-desec (real Let's Encrypt TLS; it.185 + deSEC) -----------
+# The DNS-01 issuance chain for <name>.dedyn.io. See
+# platform/cert-manager-desec/README.md for the full design (solver
+# choice, PSL/rate-limit verdict, token handling, staging-first).
+# Order: set-harbor-domain (once) -> desec-token -> dns-record ->
+# certmanager-desec-deploy -> harbor-deploy.
+
+.PHONY: set-harbor-domain
+set-harbor-domain: ## One-shot: rewrite the harbor.CHANGEME.dedyn.io placeholder repo-wide to DOMAIN=harbor.<name>.dedyn.io (then review `git diff` + commit).
+	@if [ -z "$(DOMAIN)" ] || echo "$(DOMAIN)" | grep -q "CHANGEME"; then \
+		echo "usage: make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io" >&2; exit 1; fi
+	@echo "$(DOMAIN)" | grep -Eq '^harbor\.[a-z0-9-]+\.dedyn\.io$$' || \
+		{ echo "DOMAIN must look like harbor.<name>.dedyn.io (got: $(DOMAIN))" >&2; exit 1; }
+	@files="$$(git grep -l 'harbor\.CHANGEME\.dedyn\.io' -- . || true)"; \
+	if [ -z "$$files" ]; then echo "No harbor.CHANGEME.dedyn.io placeholders left -- already set?"; exit 0; fi; \
+	echo "$$files" | xargs sed -i "s/harbor\.CHANGEME\.dedyn\.io/$(DOMAIN)/g"; \
+	echo "Rewrote placeholder in:"; echo "$$files" | sed 's/^/  /'; \
+	echo "Review with 'git diff', then commit -- Argo syncs from git, not your working tree."
+
+.PHONY: desec-token
+desec-token: ## Create/update the desec-token Secret DIRECTLY on the cluster (TOKEN=... or DESEC_TOKEN env). The ONE real credential -- NEVER goes in git; see platform/cert-manager-desec/README.md.
+	@if [ -z "$(TOKEN)" ]; then \
+		echo "usage: make desec-token TOKEN=<desec-api-token>   (or: DESEC_TOKEN=... make desec-token)" >&2; \
+		echo "The real deSEC token. It NEVER goes in git -- this target writes it straight to the cluster." >&2; exit 1; fi
+	@kubectl -n $(CERT_MANAGER_NAMESPACE) create secret generic desec-token \
+		--from-literal=token='$(TOKEN)' \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "secret/desec-token ready in namespace $(CERT_MANAGER_NAMESPACE) (never committed; placeholder shape: platform/cert-manager-desec/desec-token.placeholder.yaml)."
+
+.PHONY: dns-record
+dns-record: ## Idempotently PATCH the deSEC A rrset: $(HARBOR_DOMAIN) -> HARBOR_NODE_IP=<node-InternalIP> (DESEC_TOKEN env or TOKEN=...). Re-run any time, e.g. to re-point after a node loss.
+	@if echo "$(HARBOR_DOMAIN)" | grep -q "CHANGEME"; then \
+		echo "HARBOR_DOMAIN still has the CHANGEME placeholder -- run 'make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io' first (and commit)." >&2; exit 1; fi
+	@if [ "$(HARBOR_NODE_IP)" = "CHANGEME" ]; then \
+		echo "usage: make dns-record HARBOR_NODE_IP=<node-InternalIP>   (any Ready node from 'kubectl get nodes -o wide')" >&2; exit 1; fi
+	@if [ -z "$(TOKEN)" ]; then \
+		echo "usage: DESEC_TOKEN=<desec-api-token> make dns-record HARBOR_NODE_IP=..." >&2; exit 1; fi
+	@subname="$$(echo "$(HARBOR_DOMAIN)" | sed 's/\.$(DEDYN_DOMAIN)$$//')"; \
+	payload="$$(jq -n --arg s "$$subname" --arg ip "$(HARBOR_NODE_IP)" \
+		'[{subname: $$s, type: "A", ttl: 3600, records: [$$ip]}]')"; \
+	echo "PATCH https://desec.io/api/v1/domains/$(DEDYN_DOMAIN)/rrsets/  ($$subname A -> $(HARBOR_NODE_IP), ttl 3600)"; \
+	curl -fsS -X PATCH "https://desec.io/api/v1/domains/$(DEDYN_DOMAIN)/rrsets/" \
+		-H "Authorization: Token $(TOKEN)" \
+		-H "Content-Type: application/json" \
+		--data "$$payload" | jq .
+	@echo "Done (deSEC bulk PATCH is create-or-update, atomic, safe to re-run; ttl 3600 = deSEC's minimum)."
+
+.PHONY: certmanager-desec-deploy
+certmanager-desec-deploy: ## Apply the cert-manager-desec platform Application (GATED -- requires make argocd-install first; deploy AFTER desec-token + dns-record, BEFORE harbor-deploy).
+	kubectl apply -f applications/platform/cert-manager-desec.yaml
+
+## --- Harbor (cluster-singleton platform app; it.178/179/183 + it.185 TLS) ---
 # Independent of the mandatory landscape sequence -- only needs Argo CD
-# to already exist. See platform/harbor/README.md for the full design
-# and the top-level README's "Harbor: proxy-cache + dev push target"
-# section for the landscape-side consumption patterns.
+# to already exist, PLUS (since TLS-v2) the cert-manager-desec chain
+# above. See platform/harbor/README.md for the full design and the
+# top-level README's "Harbor: proxy-cache + dev push target" section
+# for the landscape-side consumption patterns.
 
 .PHONY: harbor-deploy
 harbor-deploy: ## Apply the Harbor platform Application (GATED -- requires make argocd-install first; independent of any landscape deploy).
@@ -129,25 +216,26 @@ harbor-configure: ## (Re-)run Harbor's config-as-code Job: dockerhub-proxy + dev
 	kubectl -n $(HARBOR_NAMESPACE) wait --for=condition=complete job/harbor-configure-projects --timeout=180s
 
 .PHONY: harbor-ui
-harbor-ui: ## Port-forward the Harbor UI to http://localhost:8081 (localhost only; TLS disabled in v1 -- see platform/harbor/README.md's "Exposure and TLS"). Login: admin / harbor-admin-secret's HARBOR_ADMIN_PASSWORD.
-	@echo "Harbor UI -> http://localhost:8081  (Ctrl-C to stop)"
-	kubectl -n $(HARBOR_NAMESPACE) port-forward svc/harbor 8081:80
+harbor-ui: ## Port-forward the Harbor UI to https://localhost:8443 (localhost only). Expect a browser name-mismatch warning: the cert's SAN is $(HARBOR_DOMAIN), not localhost -- benign for a port-forward. Login: admin / harbor-admin-secret's HARBOR_ADMIN_PASSWORD.
+	@echo "Harbor UI -> https://localhost:8443  (cert SAN is $(HARBOR_DOMAIN); the localhost mismatch warning is expected. Ctrl-C to stop)"
+	kubectl -n $(HARBOR_NAMESPACE) port-forward svc/harbor 8443:443
 
-.PHONY: harbor-configure-insecure-registry
-harbor-configure-insecure-registry: ## One-time per large-dev docker daemon: mark Harbor's NodePort (HARBOR_HOST=<node-ip>:30002) as an insecure registry + restart docker. Requires sudo -- see scripts/configure-docker-insecure-registry.sh for exactly what it does and its scope limits.
-	@if [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-configure-insecure-registry HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
-	HARBOR_HOST=$(HARBOR_HOST) ./scripts/configure-docker-insecure-registry.sh
+# `harbor-configure-insecure-registry` is GONE (it.185 TLS-v2): the
+# Let's Encrypt cert on $(HARBOR_HOST) is natively trusted by docker
+# and containerd, so there is no insecure registry to configure. If
+# you MUST run plaintext HTTP again, the old target + script live in
+# git history (commit a76bc97, scripts/configure-docker-insecure-registry.sh).
 
 .PHONY: harbor-login
-harbor-login: ## docker login to Harbor's `dev` project from large-dev, using the harbor-dev-robot account. Requires HARBOR_HOST=<node-ip>:30002 and (once) make harbor-configure-insecure-registry.
-	@if [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-login HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
+harbor-login: ## docker login to Harbor's `dev` project from large-dev, using the harbor-dev-robot account. HTTPS with a real LE cert -- no insecure-registry config needed anywhere.
+	@if echo "$(HARBOR_HOST)" | grep -q "CHANGEME"; then echo "HARBOR_DOMAIN still has the CHANGEME placeholder -- run 'make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io' first." >&2; exit 1; fi
 	@user="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.username}' | base64 -d)"; \
 	pass="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.password}' | base64 -d)"; \
 	echo "$$pass" | docker login "$(HARBOR_HOST)" -u "$$user" --password-stdin
 
 .PHONY: harbor-push
-harbor-push: ## Tag + push IMAGE=<local-image:tag> into Harbor's `dev` project. Requires HARBOR_HOST=<node-ip>:30002 and make harbor-login first.
-	@if [ -z "$(IMAGE)" ] || [ "$(HARBOR_HOST)" = "REPLACE-WITH-NODE-IP:30002" ]; then echo "usage: make harbor-push IMAGE=<local-image:tag> HARBOR_HOST=<a-k8s-one-node-ip>:30002" >&2; exit 1; fi
+harbor-push: ## Tag + push IMAGE=<local-image:tag> into Harbor's `dev` project (via $(HARBOR_HOST)). Requires make harbor-login first.
+	@if [ -z "$(IMAGE)" ] || echo "$(HARBOR_HOST)" | grep -q "CHANGEME"; then echo "usage: make harbor-push IMAGE=<local-image:tag>   (after set-harbor-domain + harbor-login)" >&2; exit 1; fi
 	@repo="$$(echo "$(IMAGE)" | sed 's/^.*\///')"; \
 	target="$(HARBOR_HOST)/dev/$${repo}"; \
 	echo "docker tag $(IMAGE) $${target}"; \
@@ -156,12 +244,13 @@ harbor-push: ## Tag + push IMAGE=<local-image:tag> into Harbor's `dev` project. 
 	docker push "$${target}"
 
 .PHONY: harbor-pull-secret
-harbor-pull-secret: ## Create/update the harbor-dev-pull imagePullSecret (from harbor-dev-robot) in namespace NS, for a landscape pulling from Harbor's private `dev` project. Defaults to the in-cluster Service DNS name (HARBOR_INTERNAL_HOST) -- see the top-level README's "pull-secret pattern".
-	@if [ -z "$(NS)" ]; then echo "usage: make harbor-pull-secret NS=<landscape-namespace> [HARBOR_INTERNAL_HOST=...]" >&2; exit 1; fi
+harbor-pull-secret: ## Create/update the harbor-dev-pull imagePullSecret (from harbor-dev-robot) in namespace NS, for a landscape pulling from Harbor's private `dev` project. Uses $(HARBOR_HOST) -- the LE cert covers the public name, NOT *.svc.cluster.local, so in-cluster pulls use the same public name too.
+	@if [ -z "$(NS)" ]; then echo "usage: make harbor-pull-secret NS=<landscape-namespace>" >&2; exit 1; fi
+	@if echo "$(HARBOR_HOST)" | grep -q "CHANGEME"; then echo "HARBOR_DOMAIN still has the CHANGEME placeholder -- run 'make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io' first." >&2; exit 1; fi
 	@user="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.username}' | base64 -d)"; \
 	pass="$$(kubectl -n $(HARBOR_NAMESPACE) get secret harbor-dev-robot -o jsonpath='{.data.password}' | base64 -d)"; \
 	kubectl -n "$(NS)" create secret docker-registry $(HARBOR_PULL_SECRET_NAME) \
-		--docker-server="$(HARBOR_INTERNAL_HOST)" \
+		--docker-server="$(HARBOR_HOST)" \
 		--docker-username="$$user" \
 		--docker-password="$$pass" \
 		--dry-run=client -o yaml | kubectl apply -f -
@@ -199,7 +288,7 @@ validate-crds: ## kustomize build + dry-run the crds/ superset.
 	kustomize build crds/ | kubectl create --dry-run=client -f - -o name
 
 .PHONY: validate-platform
-validate-platform: ## kustomize build + dry-run every platform/<app>/ (currently: platform/harbor/).
+validate-platform: ## kustomize build + dry-run every platform/<app>/ (platform/harbor/, platform/cert-manager-desec/).
 	@for d in platform/*/; do \
 		echo "--- $$d ---"; \
 		kustomize build "$$d" | kubectl create --dry-run=client -f - -o name; \

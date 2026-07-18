@@ -1,0 +1,45 @@
+# ============================================================
+# PLACEHOLDER -- NOT APPLIED BY ANYTHING, NOT A DEMO CREDENTIAL.
+# ============================================================
+# This file is deliberately NOT in kustomization.yaml's resources and
+# is NEVER synced by Argo. It exists only to document the exact shape
+# of the one REAL credential this repo's workflow touches: the deSEC
+# API token.
+#
+# THE deSEC TOKEN IS THE EXCEPTION TO THIS REPO'S PLAINTEXT-DEMO-SECRETS
+# CONVENTION. Every other Secret in this repo (harbor admin, robot,
+# landscape creds) is a fixed, committed, non-secret demo value by
+# maintainer decision (it.176). The deSEC token is different in kind:
+# it grants WRITE access to a real, internet-facing DNS zone
+# (<name>.dedyn.io) -- committing it would hand DNS control (and with
+# it, the ability to obtain valid Let's Encrypt certificates for the
+# domain) to anyone with repo access. It NEVER goes in git. Not in this
+# file, not base64'd, not in a "temporary" commit.
+#
+# The supported way to create the real Secret (directly on the cluster,
+# bypassing git entirely):
+#
+#   make desec-token TOKEN=<the-real-token>
+#
+# (or `DESEC_TOKEN=<the-real-token> make desec-token` to keep it out of
+# the make command line). If you insist on materializing a real
+# manifest locally instead, copy this file to desec-token.real.yaml --
+# that name is .gitignore'd -- and `kubectl apply -f` it yourself.
+#
+# Until the real Secret exists, both ClusterIssuers
+# (cluster-issuers.yaml) sit at READY=False with "secret not found" --
+# expected, not a defect.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: desec-token
+  # cert-manager's cluster-resource-namespace: ClusterIssuer secret
+  # refs are looked up HERE, and the webhook's RBAC Role only grants
+  # `get` on this exact Secret name in this exact namespace.
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: cert-manager-desec
+type: Opaque
+stringData:
+  token: REPLACE_ME--real-desec-api-token--NEVER-COMMIT-THE-REAL-VALUE

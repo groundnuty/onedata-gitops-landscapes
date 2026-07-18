@@ -1,8 +1,11 @@
 # Harbor -- cluster-singleton platform app
 
 Realizes design it.178 (approved), it.179 (Argo-managed platform-app
-refinement), and it.183 (the push-target authorization + public-refs
-exception). See `applications/platform/README.md` for the
+refinement), it.183 (the push-target authorization + public-refs
+exception), and it.185 TLS-v2 (real Let's Encrypt via deSEC DNS-01 --
+see "Exposure and TLS (v2)" below and
+`platform/cert-manager-desec/README.md` for the issuer side). See
+`applications/platform/README.md` for the
 platform-vs-landscape distinction; this directory is the CONTENT half
 of that split (`applications/platform/harbor.yaml` is the thin Argo
 `Application` pointer into it).
@@ -61,57 +64,72 @@ build time (`1.19.x` existed but was a fresher `.0`/`.1` minor with
 less patch-soak; `1.18.4` was chosen for the same "not `latest`, not
 bleeding-edge-unpatched" reasoning as `argocd/`'s `v3.4.4` pin).
 
-## Exposure and TLS (it.178's "the one fiddly bit")
+## Exposure and TLS (v2: real Let's Encrypt via deSEC DNS-01 -- it.185)
 
-**Chosen: in-cluster Service + NodePort, TLS disabled (HTTP-internal).**
-`expose.type: nodePort` (values.yaml), fixed `nodePort: 30002` (not
-dynamically allocated, so `make harbor-login`/`harbor-push`/a
-landscape's pull-secret docs can hardcode it), `expose.tls.enabled:
-false`.
+**Chosen: in-cluster Service + NodePort, `expose.tls.enabled: true`,
+`certSource: secret` pointed at the cert-manager-issued `harbor-tls`
+Secret** (`certificate.yaml`, issued by
+`platform/cert-manager-desec/`'s `letsencrypt-dns01` ClusterIssuer).
+Fixed NodePorts: `30003` https (the registry endpoint clients use),
+`30002` http (still rendered by the chart, but nginx now 301-redirects
+it to the https externalURL -- a redirect, not a service endpoint).
+`externalURL: https://harbor.<name>.dedyn.io:30003` -- with
+`expose.type: nodePort` + TLS the chart expects exactly this
+`https://<cert-SAN>:<https-nodePort>` shape (externalURL feeds both
+the UI's docker-command hints and the token-service URL Harbor returns
+to docker clients, so a mismatch breaks `docker login` even when
+routing works).
 
-This is it.178's "quick" option, deliberately, not the "clean" one:
+Why this is the v1 "quick option"'s clean successor, not more moving
+parts for their own sake:
 
-- **No self-signed-CA distribution problem.** A TLS-enabled Harbor
-  (chart's `certSource: auto`) mints its own CA, which every docker
-  daemon that talks to Harbor (large-dev's, and eventually any
-  landscape pulling from `dockerhub-proxy`) would need to trust --
-  either via `/etc/docker/certs.d/<host>:<port>/ca.crt` per client, or
-  by disabling verification with `--insecure-registry`. HTTP-internal
-  needs the SAME `--insecure-registry` docker-daemon configuration
-  either way (docker refuses plaintext registries by default,
-  regardless of whether the plaintext is "no TLS" or "TLS with an
-  untrusted CA") -- so disabling TLS entirely doesn't cost anything
-  extra on the client side versus a self-signed cert, while removing
-  an entire moving part (cert issuance, rotation, CA trust
-  distribution) from a v1 whose only clients are large-dev's docker
-  daemon and in-cluster pulls. `make harbor-configure-insecure-registry`
-  (`scripts/configure-docker-insecure-registry.sh`) scripts the
-  large-dev-side half of this (merges the NodePort host into
-  `/etc/docker/daemon.json`'s `insecure-registries`, restarts docker;
-  uses `sudo` twice, visibly, never auto-invoked). **This does NOT
-  cover the in-cluster side** -- see "Known gaps" below.
-- **Follow-up, explicitly noted, not built here:** a cert-manager-issued
-  certificate (the `it.165`/"cert-manager-everything" arc every
-  landscape's own TLS work is already headed toward) is the clean v2 --
-  real trust chain, no `--insecure-registry` needed anywhere. Nothing
-  about this v1's structure blocks that later: swapping
-  `expose.tls.enabled: true` + `certSource: secret` (pointed at a
-  cert-manager `Certificate`'s Secret) is a values.yaml + re-render
-  change, not a redesign.
-- **Not a LoadBalancer, not an Ingress.** Matches every other exposure
-  decision in this repo (Argo CD's own UI is port-forward-only) --
-  Harbor is reachable from inside the cluster (any pod, any pulling
-  landscape) via the `harbor.onedata-gitops-harbor.svc.cluster.local`
-  Service DNS name, and from large-dev via the NodePort on any of the
-  22 nodes' IPs. Never a public IP.
+- **The trust problem is REMOVED, not configured around.** v1's whole
+  HTTP-internal rationale was that a self-signed cert and plaintext
+  cost the same client-side surgery (`--insecure-registry` /
+  per-node containerd trust). A genuine Let's Encrypt chain costs
+  NEITHER: ISRG roots ship in every stock CA bundle, so all 22 nodes'
+  k3s containerd and large-dev's docker daemon trust
+  `harbor.<name>.dedyn.io:30003` natively. The
+  `harbor-configure-insecure-registry` target and its script are
+  DELETED (git history, commit `a76bc97`, if plaintext must ever be
+  resurrected).
+- **Still no internet exposure.** DNS-01 proves domain control via a
+  TXT record on deSEC's public nameservers -- Let's Encrypt never
+  connects to the cluster (that would be HTTP-01). The A record
+  (`make dns-record`) publishes a PRIVATE node IP (10.87.x) under the
+  public name: resolvable everywhere, reachable only from the
+  LAN/VPN. Not a LoadBalancer, not an Ingress, no public IP --
+  unchanged from v1.
+- **The name, not an IP, is now the endpoint.** `make set-harbor-domain
+  DOMAIN=harbor.<name>.dedyn.io` rewrites the committed
+  `harbor.CHANGEME.dedyn.io` placeholder repo-wide (values.yaml,
+  certificate.yaml, the vendored render's baked `EXT_ENDPOINT`, the
+  Makefile default) in one reviewed commit. Certificates are issued to
+  names; hardcoded node IPs stop appearing in client configuration
+  entirely.
+- **Bootstrapping order is load-bearing:** nginx's pod mounts the
+  `harbor-tls` Secret, so Harbor's front door does not start until
+  cert-manager has issued it. Hence the documented sequence:
+  `desec-token` -> `dns-record` -> `certmanager-desec-deploy` ->
+  `harbor-deploy`. **Staging-first on first issuance** -- see
+  `certificate.yaml`'s header and
+  `platform/cert-manager-desec/cluster-issuers.yaml` for the exact
+  flip-verify-flip-back procedure that avoids burning prod rate
+  limits.
+- **Fallback if TLS bootstrapping fails** (issuer stuck, DNS broken,
+  deSEC outage): the HTTP-internal v1 profile is one `git revert` away
+  -- `expose.tls.enabled: false`, drop `certificate.yaml`, re-render,
+  and re-apply the insecure-registry workaround from history. Kept as
+  a documented escape hatch, deliberately NOT as a maintained parallel
+  profile (two exposure modes = double the drift surface).
 
-`values.yaml`'s `externalURL` is left as an explicit
-`REPLACE-WITH-NODE-IP` placeholder rather than a silently-guessed real
-node IP -- it only affects the docker-login/pull hints Harbor's own UI
-prints (not routing), and baking in one specific node's IP as if it
-were load-bearing would be a silent, undocumented assumption. Recon
-during this build read `k8s-one-server-0` at `10.87.23.54` as one
-example of a real node IP that would work.
+In-cluster consumers use the SAME public name
+(`harbor.<name>.dedyn.io:30003`): the LE cert's SAN cannot cover
+`*.svc.cluster.local`, so the Service DNS name is no longer a docker
+endpoint (it remains fine for plain HTTP API automation -- the config
+Job now targets `harbor-core`'s own Service directly for exactly this
+reason). Pods resolve the dedyn.io name through CoreDNS's upstream
+forwarding and reach the NodePort on any node.
 
 ## Storage: `csi-cinder-sc-retain`
 
@@ -251,8 +269,10 @@ capability, otherwise stuck local-only with no cluster to run on).
 
 **Consequence for a landscape that uses this exception:** it is
 legitimately non-portable, and must say so loudly. A landscape
-referencing a `harbor.onedata-gitops-harbor.svc.cluster.local/dev/...`
-image needs a comment at the reference site reading something like:
+referencing a `harbor.<name>.dedyn.io:30003/dev/...` image (the
+public name -- the LE cert's SAN; the `*.svc.cluster.local` Service
+name stopped being a valid registry endpoint with TLS-v2) needs a
+comment at the reference site reading something like:
 
 ```yaml
 # EXPERIMENTAL / PATCHED CORE -- NOT PUBLICLY AVAILABLE.
@@ -261,7 +281,7 @@ image needs a comment at the reference site reading something like:
 # groundnuty/onedata-operator or any onedata/* image, and pulling this
 # manifest on any other cluster without its own equivalent Harbor will
 # fail. See platform/harbor/README.md's "it.183" section.
-image: harbor.onedata-gitops-harbor.svc.cluster.local/dev/op-worker:dynamic-membership-abc1234
+image: harbor.CHANGEME.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
 ```
 
 This is the ONLY documented exception to the it.178 public-refs
@@ -276,31 +296,31 @@ the pull-secret Makefile target (`make harbor-pull-secret NS=...`).
 
 ## Known gaps (documented, not hidden)
 
-- **No cert-manager TLS in v1** -- see "Exposure and TLS" above.
-- **The 22 nodes' containerd (k3s) do not yet trust Harbor's HTTP
-  endpoint -- a real gap the "avoids node surgery" framing in it.178
-  could understate.** `make harbor-configure-insecure-registry` only
-  configures large-dev's own docker daemon (the push side, from a shell
-  on large-dev). An in-cluster pod actually PULLING a Harbor-prefixed
-  image -- whether via the README's kustomize image-prefix overlay
-  pattern against `dockerhub-proxy`, or via the `harbor-dev-pull`
-  imagePullSecret against `dev` -- needs the scheduling node's own k3s
-  containerd to trust that specific `host:port` for plaintext/insecure
-  HTTP too (typically `/etc/rancher/k3s/registries.yaml`'s `configs:
-  "<host>": tls: { insecure_skip_verify: true }`, applied per node,
-  then a `k3s-agent`/`k3s` service restart). It.178 explicitly deferred
-  "node-containerd mirror surgery" out of v1 on the reasoning that the
-  kustomize-prefix approach is opt-in per landscape rather than a
-  cluster-wide transparent `docker.io` mirror -- true, and it does
-  avoid affecting workloads that never reference a Harbor-prefixed
-  image -- but it does NOT eliminate the underlying need: any node a
-  Harbor-referencing pod schedules onto still needs that trust
-  configured, for any of the 22 nodes, since pods aren't pinned to a
-  specific node by default. **Not automated by this build** (no
-  landscape in this repo references a Harbor-prefixed image yet, so
-  nothing is blocked today) -- flagged here precisely so the gap
-  surfaces at design-review time rather than as a live pull failure
-  the first time a landscape actually opts in.
+- **The v1 containerd-trust gap is DISSOLVED, not worked around**
+  (it.185): the two v1 entries that used to lead this list -- "no
+  cert-manager TLS" and "the 22 nodes' containerd don't trust Harbor's
+  HTTP endpoint" -- are gone because their common cause (a plaintext/
+  untrusted endpoint) is gone. With a genuine Let's Encrypt cert on
+  `harbor.<name>.dedyn.io:30003`, every node's containerd and
+  large-dev's docker trust the endpoint out of the box; there is no
+  per-node `registries.yaml` surgery and no `insecure-registries`
+  daemon.json entry anywhere. The old large-dev-side workaround
+  (`make harbor-configure-insecure-registry` +
+  `scripts/configure-docker-insecure-registry.sh`) is deleted -- git
+  history (commit `a76bc97`) has it if plaintext HTTP must ever be
+  resurrected.
+- **What TLS-v2 newly depends on, honestly:** (1) the deSEC A record
+  points at ONE node's IP -- lose that node and the NAME goes dark
+  until `make dns-record HARBOR_NODE_IP=<other-node>` re-points it
+  (TTL 3600 bounds the stale window); (2) in-cluster pulls resolve a
+  public name via CoreDNS upstream forwarding -- a DNS-rebind-filtering
+  resolver would break RFC1918 answers from public zones (k8s-one's
+  default CoreDNS does not filter, noted in
+  `platform/cert-manager-desec/README.md`); (3) cert renewal is
+  cert-manager's job (renewBefore 30d) -- if renewal breaks, docker
+  clients hard-fail at expiry, which is TLS working as designed, and
+  the staging-first + `kubectl get certificate -A` check in the deploy
+  docs is the observability hook.
 - **`vendor/harbor-1.18.4-rendered.yaml`'s chart-internal secrets are
   non-reproducible across a re-render** -- see that file's own header
   comment; harmless, documented, not the same category as the

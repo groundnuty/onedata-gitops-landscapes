@@ -1,0 +1,416 @@
+# AUTO-GENERATED (via helm template + a yq annotate pass) -- regenerate,
+# don't hand-edit. See README.md (this directory) for the solver-choice
+# rationale and platform/harbor/README.md's "helm-vendored vs. Argo Helm
+# source" for the repo-wide vendoring convention this follows.
+# Regeneration steps:
+#
+#   1. git clone --depth 1 --branch v1.0.1 \
+#        https://github.com/su541/cert-manager-desec-webhook.git
+#   2. helm template desec-webhook \
+#        <clone>/deploy/desec-webhook
+#        --namespace cert-manager
+#        -f platform/cert-manager-desec/values.yaml
+#        > /tmp/desec-webhook-raw.yaml
+#   3. yq eval '.metadata.annotations["argocd.argoproj.io/sync-wave"] = "0"' \
+#        /tmp/desec-webhook-raw.yaml
+#        > platform/cert-manager-desec/vendor/cert-manager-desec-webhook-v1.0.1-rendered.yaml
+#
+# (step 2's flags collapsed onto one command line in practice --
+# spread across lines above only for readability in this comment.)
+#
+# Upstream: github.com/su541/cert-manager-desec-webhook, git tag v1.0.1
+# (2026-04-22; MPL-2.0; chart is only distributed in-tree -- not
+# published to any chart registry, so vendoring the render is the only
+# network-free consumption option anyway). The Deployment's image is
+# pinned to ghcr.io/su541/cert-manager-desec-webhook:v1.0.0 -- ghcr has
+# NO v1.0.1 image tag (verified at build time; see values.yaml's
+# image.tag comment).
+#
+# Everything renders into the PRE-EXISTING cert-manager namespace
+# except one RoleBinding that MUST land in kube-system
+# (extension-apiserver-authentication-reader -- how the aggregated-API
+# webhook authenticates its callers). That is why
+# platform/cert-manager-desec/kustomization.yaml deliberately has NO
+# kustomize namespace: transformer -- see its header comment.
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: desec-webhook
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+# Grant cert-manager permission to validate using our apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: desec-webhook:domain-solver
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups:
+      - acme.onedata-gitops-landscapes.internal
+    resources:
+      - '*'
+    verbs:
+      - 'create'
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: desec-webhook:flowcontrol-solver
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups:
+      - "flowcontrol.apiserver.k8s.io"
+    resources:
+      - 'prioritylevelconfigurations'
+      - 'flowschemas'
+    verbs:
+      - 'list'
+      - 'watch'
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+# apiserver gets the auth-delegator role to delegate auth decisions to
+# the core apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: desec-webhook:auth-delegator
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: desec-webhook
+    namespace: cert-manager
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: desec-webhook:domain-solver
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: desec-webhook:domain-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager
+    namespace: cert-manager
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: desec-webhook:flowcontrol-solver
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: desec-webhook:flowcontrol-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: desec-webhook
+    namespace: "cert-manager"
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: desec-webhook:secret-reader
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - "secrets"
+    resourceNames:
+      - desec-token
+    verbs:
+      - "get"
+      - "watch"
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+# Grant the webhook permission to read the ConfigMap containing the Kubernetes
+# apiserver's requestheader-ca-certificate.
+# This ConfigMap is automatically created by the Kubernetes apiserver.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: desec-webhook:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: desec-webhook
+    namespace: cert-manager
+---
+# Source: cert-manager-desec-webhook/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: desec-webhook:secret-reader
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: desec-webhook:secret-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: desec-webhook
+    namespace: cert-manager
+---
+# Source: cert-manager-desec-webhook/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: desec-webhook
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    app: cert-manager-desec-webhook
+    release: desec-webhook
+---
+# Source: cert-manager-desec-webhook/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: desec-webhook
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cert-manager-desec-webhook
+      release: desec-webhook
+  template:
+    metadata:
+      labels:
+        app: cert-manager-desec-webhook
+        release: desec-webhook
+    spec:
+      serviceAccountName: desec-webhook
+      containers:
+        - name: cert-manager-desec-webhook
+          image: "ghcr.io/su541/cert-manager-desec-webhook:v1.0.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+          env:
+            - name: GROUP_NAME
+              value: "acme.onedata-gitops-landscapes.internal"
+          ports:
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          volumeMounts:
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      volumes:
+        - name: certs
+          secret:
+            secretName: desec-webhook-webhook-tls
+---
+# Source: cert-manager-desec-webhook/templates/apiservice.yaml
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.acme.onedata-gitops-landscapes.internal
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    cert-manager.io/inject-ca-from: "cert-manager/desec-webhook-webhook-tls"
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  group: acme.onedata-gitops-landscapes.internal
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: desec-webhook
+    namespace: cert-manager
+  version: v1alpha1
+---
+# Source: cert-manager-desec-webhook/templates/pki.yaml
+# Generate a CA Certificate used to sign certificates for the webhook
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: desec-webhook-ca
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  secretName: desec-webhook-ca
+  duration: 43800h # 5y
+  issuerRef:
+    name: desec-webhook-selfsign
+  commonName: "ca.desec-webhook.cert-manager"
+  isCA: true
+---
+# Source: cert-manager-desec-webhook/templates/pki.yaml
+# Finally, generate a serving certificate for the webhook to use
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: desec-webhook-webhook-tls
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  secretName: desec-webhook-webhook-tls
+  duration: 8760h # 1y
+  issuerRef:
+    name: desec-webhook-ca
+  dnsNames:
+    - desec-webhook
+    - desec-webhook.cert-manager
+    - desec-webhook.cert-manager.svc
+---
+# Source: cert-manager-desec-webhook/templates/pki.yaml
+# Create a selfsigned Issuer, in order to create a root CA certificate for
+# signing webhook serving certificates
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: desec-webhook-selfsign
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selfSigned: {}
+---
+# Source: cert-manager-desec-webhook/templates/pki.yaml
+# Create an Issuer that uses the above generated CA certificate to issue certs
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: desec-webhook-ca
+  namespace: "cert-manager"
+  labels:
+    app: cert-manager-desec-webhook
+    chart: cert-manager-desec-webhook-1.0.0
+    release: desec-webhook
+    heritage: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  ca:
+    secretName: desec-webhook-ca

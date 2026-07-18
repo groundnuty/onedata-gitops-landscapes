@@ -18,6 +18,13 @@ source of truth" for re-derivable state + sealed secrets).
 > [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets) or an
 > equivalent (SOPS, External Secrets Operator, ...) -- noted here, not
 > built here.
+>
+> **The ONE exception to the plaintext convention: the deSEC API token**
+> (it.185 real-TLS chain). It grants write access to a real DNS zone --
+> which is certificate-issuance control -- so it NEVER goes in git, in
+> any form. `make desec-token TOKEN=...` writes it straight to the
+> cluster; see `platform/cert-manager-desec/README.md`'s "Token
+> handling".
 
 ## The model
 
@@ -71,7 +78,8 @@ Argo-managed.
 ```
 argocd/                       dedicated-namespace Argo CD install + health/ignoreDifferences config
 crds/                          the ONE shared, cluster-scoped CRD set (superset/latest)
-platform/harbor/               cluster-singleton Harbor (proxy-cache + dev push target; it.178/179/183)
+platform/cert-manager-desec/   deSEC DNS-01 webhook solver + Let's Encrypt ClusterIssuers (it.185 real TLS)
+platform/harbor/               cluster-singleton Harbor (proxy-cache + dev push target; it.178/179/183; LE TLS via it.185)
 landscapes/<name>/<version>/   a full hermetic landscape's manifests, wave-annotated
 applications/
   platform/                   cluster-SINGLETON Argo apps (one per cluster; see below)
@@ -140,22 +148,42 @@ land is a foot-gun this repo will not paper over.
 > task's scope; deploying to k8s-one is an explicit, separate, gated
 > follow-up.
 
-### Optional platform app: Harbor
+### Optional platform apps: cert-manager-desec + Harbor
 
-Harbor (`platform/harbor/`, it.178/179/183) is **independent of the
-four-step sequence above** -- it doesn't gate any landscape, and no
-landscape gates it. It only needs Argo CD to already exist:
+Harbor (`platform/harbor/`, it.178/179/183) and its TLS chain
+(`platform/cert-manager-desec/`, it.185 + the maintainer's deSEC
+decision) are **independent of the four-step sequence above** -- they
+don't gate any landscape, and no landscape gates them. They only need
+Argo CD to already exist. **Within the Harbor chain, though, THIS
+order is load-bearing** (Harbor's nginx pod blocks on the issued
+`harbor-tls` Secret; the issuers block on the token):
 
 ```
-make argocd-install     # step 3 above, if not already done
-make harbor-deploy      # any time after that, any order vs. deploy-landscape
-make harbor-configure   # creates the dockerhub-proxy + dev projects + push robot (idempotent, re-runnable)
+make argocd-install                                        # step 3 above, if not already done
+make set-harbor-domain DOMAIN=harbor.<name>.dedyn.io       # once, after the maintainer's deSEC account
+                                                            #   exists; rewrites the CHANGEME placeholder
+                                                            #   repo-wide -- review `git diff`, commit, push
+                                                            #   (Argo syncs from git, not your working tree)
+make desec-token TOKEN=<real-desec-token>                   # the ONE real credential -> cluster Secret, NEVER git
+make dns-record HARBOR_NODE_IP=<node-InternalIP>            # idempotent deSEC A record (re-run to re-point)
+make certmanager-desec-deploy                                # webhook solver + letsencrypt-{,staging-}dns01 issuers
+make harbor-deploy                                           # Harbor itself, TLS'd with a REAL Let's Encrypt cert
+make harbor-configure                                        # dockerhub-proxy + dev projects + push robot (idempotent)
 ```
+
+**RECOMMENDED: staging-first on the first issuance** -- flip
+`platform/harbor/certificate.yaml`'s issuerRef to
+`letsencrypt-staging-dns01`, verify READY=True, flip back and delete
+the staging Secret. Full procedure + rate-limit rationale in
+`platform/cert-manager-desec/cluster-issuers.yaml`'s header. (dedyn.io
+is on the Public Suffix List, so `<name>.dedyn.io` gets its OWN Let's
+Encrypt rate-limit bucket -- but it's still finite.)
 
 **Also not run by this build** -- content + dry-run validation only,
-same gating as every landscape. See `platform/harbor/README.md` for
-the full design and "Using the Harbor proxy-cache from a landscape"
-below for how a landscape actually consumes it once deployed.
+same gating as every landscape. See `platform/harbor/README.md` +
+`platform/cert-manager-desec/README.md` for the full designs and
+"Using the Harbor proxy-cache from a landscape" below for how a
+landscape actually consumes Harbor once deployed.
 
 ### Everyday targets
 
@@ -165,11 +193,15 @@ make argocd-ui                             # port-forward the Argo CD UI (localh
 make list-landscapes                       # what's under landscapes/
 make delete-landscape NAME=... VERSION=... # remove a landscape's root Application (and, per its syncPolicy, its resources)
 make argocd-uninstall                      # tear down the Argo CD install
-make validate                              # kustomize build + helm template + kubectl apply --dry-run=client everywhere, NO cluster contact
-make harbor-deploy                         # apply the Harbor platform Application (gated -- see "Optional platform app: Harbor")
+make validate                              # kustomize build + kubectl create --dry-run=client everywhere
+make set-harbor-domain DOMAIN=...          # one-shot: rewrite the harbor.CHANGEME.dedyn.io placeholder repo-wide
+make desec-token TOKEN=...                 # the real deSEC token -> cluster Secret (NEVER git)
+make dns-record HARBOR_NODE_IP=...         # idempotent deSEC A record for the Harbor name
+make certmanager-desec-deploy              # apply the cert-manager-desec platform Application (gated)
+make harbor-deploy                         # apply the Harbor platform Application (gated -- see "Optional platform apps")
 make harbor-configure                      # (re-)run Harbor's config-as-code Job: dockerhub-proxy + dev projects + push robot
-make harbor-ui                             # port-forward the Harbor UI (localhost only)
-make harbor-login                          # docker login to Harbor's `dev` project from large-dev (robot account)
+make harbor-ui                             # port-forward the Harbor UI (localhost only; expect the cert-SAN/localhost mismatch warning)
+make harbor-login                          # docker login to Harbor's `dev` project from large-dev (robot account; real LE TLS, no insecure-registry config)
 make harbor-push IMAGE=...                 # tag + push an image into Harbor's `dev` project
 make harbor-pull-secret NS=...             # create the imagePullSecret for Harbor's `dev` project in namespace NS
 ```
@@ -180,14 +212,21 @@ make harbor-pull-secret NS=...             # create the imagePullSecret for Harb
 |---|---|---|---|
 | [`sv-posix-multinode`](landscapes/sv-posix-multinode/v1/README.md) | `v1` | `spec.managed.storageVolume` on a real RWX `nfs-xattr` PVC + `workerNodes: 2` (it.161/164) -- the multi-worker shared-posix feature | `groundnuty/onedata-operator:v0.6.0` (**forward reference -- see landscape README**) |
 
-## Harbor: proxy-cache + dev push target (it.178/179/183)
+## Harbor: proxy-cache + dev push target (it.178/179/183; real LE TLS via it.185)
 
 `platform/harbor/` (Argo Application: `applications/platform/harbor.yaml`)
 is a cluster-singleton, GATED like every landscape -- see
 `platform/harbor/README.md` for the full design (chart-vendoring
-choice, exposure/TLS trade-off, resource sizing, config-as-code robot
-model). This section covers the two things a *landscape* author needs
-to know to actually use it.
+choice, the TLS-v2 exposure story, resource sizing, config-as-code
+robot model) and `platform/cert-manager-desec/README.md` for the
+Let's Encrypt DNS-01 issuance chain behind it. This section covers the
+two things a *landscape* author needs to know to actually use it.
+
+> **Wildcard note (mentioned, not built):** the same
+> `letsencrypt-dns01` issuer can mint a `*.<name>.dedyn.io` wildcard
+> (DNS-01 is the only ACME challenge type that can) -- one future cert
+> covering the Argo CD UI and any other platform app. Argo CD stays
+> port-forward-only by design today.
 
 ### Using the proxy-cache from a landscape: the image-prefix overlay pattern
 
@@ -208,24 +247,27 @@ resources:
   - ../.. # the base landscape, unmodified
 images:
   - name: groundnuty/onedata-operator
-    newName: <harbor-node-ip>:30002/dockerhub-proxy/groundnuty/onedata-operator
+    newName: harbor.CHANGEME.dedyn.io:30003/dockerhub-proxy/groundnuty/onedata-operator
     # newTag: left unset -- keeps whatever tag the base kustomization pinned
+    # (the CHANGEME placeholder is rewritten repo-wide by `make
+    # set-harbor-domain`; the name resolves via the deSEC A record and
+    # the NodePort is reachable on all 22 nodes)
 ```
 
 Then `kustomize build .../overlays/harbor-proxy/` instead of the base
-directory directly. Any of the 22 node IPs works as `<harbor-node-ip>`
-(the NodePort is reachable cluster-wide); `make harbor-ui`'s output
-prints Harbor's current externalURL if you need to look it up.
+directory directly.
 
-**Known gap, flagged not hidden (see `platform/harbor/README.md`'s
-"Known gaps" for the full writeup):** rewriting the reference is only
-half the story -- the node a rewritten-image pod actually schedules
-onto still needs its own k3s containerd to trust Harbor's HTTP
-endpoint for that host:port (any of the 22 nodes could be the one).
-That per-node trust step is NOT automated by this build; no landscape
-in this repo references a Harbor-prefixed image yet, so nothing is
-blocked today, but don't read this overlay pattern as sufficient on
-its own once one does.
+**The v1 known gap here is DISSOLVED (it.185):** this used to carry a
+warning that any node a rewritten-image pod schedules onto needed its
+own k3s containerd taught to trust Harbor's plaintext HTTP endpoint --
+a real, unautomated, 22-node operational step. With TLS-v2 (a genuine
+Let's Encrypt certificate on `harbor.<name>.dedyn.io:30003` -- see
+`platform/harbor/README.md`'s "Exposure and TLS (v2)" and
+`platform/cert-manager-desec/`), every node's containerd trusts the
+endpoint natively via the stock CA bundle. No per-node trust config,
+no `insecure-registries`, nothing to automate -- the reason the gap
+existed is gone. (The deleted large-dev-side workaround lives in git
+history, commit `a76bc97`, should plaintext ever need resurrecting.)
 
 Separately, this pattern covers plain `spec.containers[].image`
 fields. It does **not** reach an `onedata.org` CR's own image spec field (e.g. a future
@@ -259,8 +301,14 @@ point of use:
 # maintainer-authorized exception). NOT groundnuty/onedata-operator or
 # any onedata/* image; unpullable on any other cluster. See
 # platform/harbor/README.md's "it.183" section.
-image: harbor.onedata-gitops-harbor.svc.cluster.local/dev/op-worker:dynamic-membership-abc1234
+image: harbor.CHANGEME.dedyn.io:30003/dev/op-worker:dynamic-membership-abc1234
 ```
+
+(The public dedyn.io name, not the `*.svc.cluster.local` Service DNS
+name: the Let's Encrypt cert's SAN covers only the public name, so
+since TLS-v2 the Service name is not a valid registry endpoint for
+containerd -- see `platform/harbor/README.md`'s "Exposure and TLS
+(v2)".)
 
 This is the **only** documented exception to the public-refs
 principle -- every landscape in the table above keeps portable refs.
@@ -279,9 +327,12 @@ creates a `kubernetes.io/dockerconfigjson` Secret named
 `harbor-dev-pull` in `NS`, built from the same `harbor-dev-robot`
 credential `platform/harbor/secrets.yaml` already defines (robot
 accounts can both push and pull within their scoped project -- see
-`platform/harbor/README.md`'s "Robot account and auth model"). A
-landscape references it the normal Kubernetes way, on whichever
-ServiceAccount/Pod spec pulls the image:
+`platform/harbor/README.md`'s "Robot account and auth model"). Since
+TLS-v2 the secret's `docker-server` is the PUBLIC name
+(`harbor.<name>.dedyn.io:30003` -- the LE cert's SAN, which containerd
+verifies), not the in-cluster Service DNS name. A landscape references
+it the normal Kubernetes way, on whichever ServiceAccount/Pod spec
+pulls the image:
 
 ```yaml
 # e.g. landscapes/<name>/<version>/operator/serviceaccount.yaml

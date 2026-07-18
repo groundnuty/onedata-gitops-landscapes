@@ -25,7 +25,7 @@
 # silently) for every step.
 set -euo pipefail
 
-HARBOR_URL="${HARBOR_URL:-http://harbor.onedata-gitops-harbor.svc.cluster.local}"
+HARBOR_URL="${HARBOR_URL:-http://harbor-core.onedata-gitops-harbor.svc.cluster.local}"
 HARBOR_ADMIN_USER="${HARBOR_ADMIN_USER:-admin}"
 HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:?set from the harbor-admin-secret Secret (HARBOR_ADMIN_PASSWORD key)}"
 DOCKERHUB_REGISTRY_NAME="${DOCKERHUB_REGISTRY_NAME:-dockerhub}"

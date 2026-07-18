@@ -1,0 +1,68 @@
+# Values used to render vendor/cert-manager-desec-webhook-v1.0.1-rendered.yaml.
+# See README.md's "Webhook solver chosen" section for why
+# su541/cert-manager-desec-webhook was picked over the other candidates,
+# and the vendored file's own header comment for the exact regeneration
+# command. Kept in git for reproducibility, same convention as
+# platform/harbor/values.yaml.
+
+replicaCount: 1
+
+# Deployed INTO the pre-existing `cert-manager` namespace. This repo
+# does NOT own, create, or manage that namespace -- cert-manager itself
+# (v1.21.0) was already installed on k8s-one before this repo existed
+# and stays outside its scope; the webhook solver is an EXTENSION
+# deployed alongside it (the standard deployment shape for cert-manager
+# ACME webhook solvers -- the solver must live where cert-manager's
+# cluster-resource-namespace points, because that is where a
+# ClusterIssuer's referenced Secrets are looked up).
+certManager:
+  namespace: cert-manager
+  serviceAccountName: cert-manager
+
+nameOverride: ""
+fullnameOverride: "desec-webhook"
+
+# The aggregated-API group this webhook registers
+# (APIService v1alpha1.<groupName>). A reverse-DNS-style identifier,
+# NOT a resolvable domain -- it only has to be unique within the
+# cluster and must match the ClusterIssuers'
+# solvers[].dns01.webhook.groupName (cluster-issuers.yaml). Both are
+# templated/written from this single value.
+groupName: acme.onedata-gitops-landscapes.internal
+
+image:
+  repository: "ghcr.io/su541/cert-manager-desec-webhook"
+  # v1.0.0, NOT v1.0.1: the ghcr.io registry has image tags
+  # {v1.0.0, master, latest, nightly} but NO v1.0.1 -- verified against
+  # ghcr's tags/list API at build time (the v1.0.1 GIT tag exists and is
+  # what the chart templates here were vendored from; its release CI
+  # evidently never pushed a matching image tag). v1.0.0 is the newest
+  # immutable image tag available; the v1.0.0->v1.0.1 source diff is
+  # dependency bumps only.
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+# The webhook's own RBAC Role is scoped (via resourceNames) to exactly
+# the Secret name(s) listed here -- must include "desec-token", the name
+# both ClusterIssuers reference (cluster-issuers.yaml's
+# apiKeySecretRef.name). That Secret is created OUT-OF-BAND via
+# `make desec-token TOKEN=...` and NEVER committed to git -- see
+# README.md's "Token handling" section.
+secretName:
+  - desec-token
+
+service:
+  port: 443
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+affinity: {}
+tolerations: []

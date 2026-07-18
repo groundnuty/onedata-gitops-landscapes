@@ -55,7 +55,17 @@ spec:
               drop: ["ALL"]
           env:
             - name: HARBOR_URL
-              value: http://harbor.onedata-gitops-harbor.svc.cluster.local
+              # harbor-core's OWN Service, not the nginx front door
+              # ("harbor" svc): with TLS-v2 (it.185) nginx now serves
+              # the Let's Encrypt cert for the PUBLIC name and
+              # 301-redirects plain HTTP -- an in-cluster curl against
+              # the front door would get either a redirect or a
+              # SAN-mismatched cert (LE cannot issue for
+              # *.svc.cluster.local). core's Service stays plain HTTP
+              # internally (internalTLS disabled) and exposes the
+              # identical /api/v2.0 surface, so the config Job needs
+              # neither external DNS nor TLS trust to do its job.
+              value: http://harbor-core.onedata-gitops-harbor.svc.cluster.local
             - name: HARBOR_ADMIN_USER
               value: admin
             - name: HARBOR_ADMIN_PASSWORD

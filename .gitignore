@@ -6,6 +6,16 @@ kubeconfig
 *.kubeconfig
 KUBECONFIG
 
+# The deSEC API token -- the ONE real credential this repo's workflow
+# touches (it grants write access to a real DNS zone = certificate-
+# issuance control). NEVER commit it. `make desec-token TOKEN=...`
+# writes it straight to the cluster; if you materialize a local
+# manifest from platform/cert-manager-desec/desec-token.placeholder.yaml,
+# name it *.real.yaml so these patterns catch it.
+*.real.yaml
+desec-token.real.yaml
+*.desec-token
+
 # local scratch
 *.tmp
 .DS_Store

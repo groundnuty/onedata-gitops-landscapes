@@ -40,6 +40,30 @@ calls.
 the maintainer's ordered sequence (top-level README's "Mandatory
 deploy sequence").
 
+## cert-manager-desec (built -- it.185 + the maintainer's deSEC decision)
+
+**`cert-manager-desec.yaml`** points at `platform/cert-manager-desec/`:
+the deSEC DNS-01 webhook solver (vendored render, deployed into the
+PRE-EXISTING `cert-manager` namespace -- this repo does not own
+cert-manager itself) plus the `letsencrypt-dns01` /
+`letsencrypt-staging-dns01` ClusterIssuers. It is what turns Harbor's
+exposure into a REAL Let's Encrypt certificate on
+`harbor.<name>.dedyn.io` -- dissolving the it.185 containerd-trust
+known gap (LE roots are natively trusted by all 22 nodes and
+large-dev's docker; the insecure-registry workarounds are deleted).
+See `platform/cert-manager-desec/README.md` for the full design
+(solver choice, PSL/rate-limit verdict, token handling,
+staging-first discipline).
+
+**Ordering:** deploy AFTER `make desec-token` + `make dns-record`,
+BEFORE `make harbor-deploy` (Harbor's nginx blocks on the issued
+`harbor-tls` Secret). Its Application carries sync-wave `-1` to record
+that intent declaratively; with no app-of-apps today, the make-target
+sequence in the top-level README is the load-bearing order.
+
+**GATED, same as every landscape:** schema-valid and dry-run-clean
+(`make validate`), NOT yet applied to k8s-one.
+
 ## Argo CD itself is not here either
 
 Argo CD is the **one bootstrap exception**: it cannot GitOps-deploy
