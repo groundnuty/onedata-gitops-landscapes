@@ -45,11 +45,22 @@ spec:
     endpoint: zone-onezone.sv-livegrow.svc.cluster.local
   onepanelCredentialsSecretRef:
     name: provider-onepanel-creds
+  # trustIssuerCA intentionally OFF (Finding 11, research/rtransfer-cafix.md):
+  # a bare CA-trust cert in cacerts_dir with no matching private key
+  # crash-loops rtransfer_link ~4.5-5x/sec, dumping ~7.6MB core files per
+  # crash into the pod's writable layer and filling it in 7-9min -- root-
+  # caused as core-side (rtransfer_config:make_ca_bundle/0's naive
+  # concatenation feeding Fizz/Wangle's identity-loading CA-bundle parser),
+  # confirmed unfixable via any operator-side mount composition (live A/B
+  # on minikube: issuerRef-only, no trustIssuerCA, ran 3+min with ZERO
+  # rtransfer_link crashes; re-adding a bare CA cert -- shadowed or
+  # additive -- crashed every time). issuerRef-only web-TLS (below) is
+  # that proven-clean arm; de-mined here so this landscape can run long
+  # enough for the scale-down/replace hardware proofs (hw-elasticity-2.md).
   tls:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
-    trustIssuerCA: true
   managed:
     enabled: true
     image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-patched:dynmem-livegrow-hw1
