@@ -52,6 +52,17 @@ rules:
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
     verbs: [create, delete, get, list, patch, update, watch]
+  # The oneprovider chart-wrap renders a default-on disterl NetworkPolicy
+  # (it.154-P5 safety hardening, templates/networkpolicy.yaml) -- without
+  # this rule the embedded helm install fails its pre-install lookup
+  # (cannot get resource networkpolicies: provider-oneprovider-disterl),
+  # hit live on the first k8s-one GitOps deploy (it.176-191). NetworkPolicy
+  # is namespaced, so it fits this Role cleanly. NOTE: the upstream
+  # operator repo config/rbac/role.yaml is missing this group too --
+  # flagged upstream, fixed here.
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
   - apiGroups: [onedata.org]
     resources: [groups, oneclients, oneproviders, onezones, spaces, storagebackends, supports, users]
     verbs: [create, delete, get, list, patch, update, watch]
