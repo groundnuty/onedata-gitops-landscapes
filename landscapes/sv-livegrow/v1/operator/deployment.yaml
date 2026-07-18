@@ -1,0 +1,87 @@
+# Namespace-scoped onedata-operator instance for sv-livegrow ONLY:
+# --watch-namespace restricts its controller-runtime cache to
+# sv-livegrow -- never sees, and cannot reconcile, sv-posix-multinode
+# (v1)'s own namespace-scoped operator/CRs or any other landscape's.
+#
+# Image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
+# -- the SAME already-pushed, already-proven image sv-posix-multinode/v2
+# used (design it.209 v2 deploy, 0/6 defect recurrence). growMode:Live
+# is fully merged into operator master as of it.189 and is an ancestor
+# of the v0.6.1 tag (verified: 86d00d2/21272dd/e59804a/b108491/74593b1
+# all `git merge-base --is-ancestor` v0.6.1) -- NO new operator image
+# build or push was needed for this landscape, only the already-Harbor
+# v0.6.1 ref.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sv-livegrow-operator
+  namespace: sv-livegrow
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: onedata-operator
+    landscape: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      landscape: sv-livegrow
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: onedata-operator
+        landscape: sv-livegrow
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: sv-livegrow-operator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1
+          command: ["/manager"]
+          args:
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+            - --watch-namespace=sv-livegrow
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

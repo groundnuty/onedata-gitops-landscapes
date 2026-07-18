@@ -1,0 +1,18 @@
+# Wave -1 (strictly before any namespaced resource): the namespace
+# itself. sv-livegrow -- a NEW, dedicated landscape for the it.209
+# "live-grow on hardware" proof (design it.173/175/182/189): upgrading
+# the minikube growMode:Live proof (1->2 in 67s, 2->3 in ~90s, 0
+# non-200 in 373 polls) to real multi-node k8s-one hardware. Modeled on
+# sv-posix-multinode/v2's productionized pattern (dev-CA TLS + Harbor
+# images + v0.6.1 operator) but its OWN namespace/landscape -- does not
+# touch sv-posix-multinode (v1) in any way.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sv-livegrow
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-livegrow
+    landscape-version: v1
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

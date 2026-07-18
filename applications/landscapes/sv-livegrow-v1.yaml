@@ -1,0 +1,69 @@
+# Root Application for the sv-livegrow landscape, version v1 -- proves
+# TRUE LIVE WORKER GROW (design it.173/175/182/189) on real k8s-one
+# multi-node hardware, upgrading the minikube-only proof. Deploys
+# ALONGSIDE sv-posix-multinode (v1), into its OWN destination namespace
+# (sv-livegrow) -- does not touch that landscape or Application.
+#
+# GATED, same discipline as every other landscape's root Application:
+# do not apply until (1) the onedata-dev-ca platform Application is
+# synced and its ClusterIssuer is Ready, (2) `make harbor-pull-secret
+# NS=sv-livegrow` has been run (operator image + the patched Oneprovider
+# image both come from Harbor's private `dev` project), and (3) the
+# external docker-onedata-org imagePullSecret exists in the sv-livegrow
+# namespace (see landscapes/sv-livegrow/v1/README.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sv-livegrow-v1
+  namespace: onedata-gitops-argocd
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-livegrow
+    landscape-version: v1
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/groundnuty/onedata-gitops-landscapes.git
+    targetRevision: master
+    path: landscapes/sv-livegrow/v1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sv-livegrow
+  syncPolicy:
+    # Deliberately NO automated.prune / automated.selfHeal -- this
+    # landscape's whole point is a manually-timed, evidence-gathering
+    # grow (workerNodes bumped via a git commit, watched by hand), not
+    # an auto-syncing steady state.
+    syncOptions:
+      - CreateNamespace=false # the landscape's own 00-namespace.yaml (wave -1) creates it
+  ignoreDifferences:
+    - group: onedata.org
+      kind: Onezone
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: onedata.org
+      kind: Oneprovider
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: onedata.org
+      kind: StorageBackend
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: onedata.org
+      kind: Space
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: onedata.org
+      kind: Support
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: onedata.org
+      kind: User
+      jsonPointers:
+        - /status
+        - /metadata/finalizers

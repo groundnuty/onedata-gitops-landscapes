@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# sv-livegrow/v1 -- a dedicated landscape proving TRUE LIVE WORKER GROW
+# (design it.173/175/182/189) on REAL multi-node k8s-one hardware,
+# upgrading the minikube-only proof (research/livegrow-build.md: grow
+# 1->2 in 67s, 2->3 in ~90s, 0 non-200 in 373 polls, zero restarts,
+# storage-serving proven via InitSpaceCaches). Modeled directly on
+# sv-posix-multinode/v2's productionized pattern:
+#
+#   wave -1  00-namespace.yaml            the namespace itself
+#   wave  1  operator/                    namespace-scoped, v0.6.1 onedata-operator (Harbor `dev` image; growMode:Live is merged into master since it.189)
+#   wave  2  crs/                         demo Secrets, the RWX storageVolume PVC, Onezone, Oneprovider
+#
+# Deltas from sv-posix-multinode/v2 (see crs/oneprovider.yaml and
+# crs/onezone.yaml headers for the full why):
+#
+# 1. spec.managed.image on the Oneprovider CR is the DYNAMIC_MEMBERSHIP
+#    core-patched image (patchset 0005-0011 cumulative beams, see
+#    research/livegrow-build.md's Dockerfile.livegrow), pushed to
+#    Harbor's PRIVATE `dev` project as
+#    dev/oneprovider-patched:dynmem-livegrow-hw1 -- NOT the public
+#    dockerhub-proxy vanilla release v2 uses. This is local-patched
+#    core, per design it.209's explicit maintainer directive: the
+#    ONLY approved destination for a patched core image leaving
+#    large-dev is our own private Harbor `dev` project (never any
+#    Onedata registry, never Docker Hub).
+# 2. Because the Oneprovider image is `-dev` NIGHTLY lineage (built
+#    FROM docker.onedata.org/oneprovider-dev:develop, not the vanilla
+#    21.02.7 release), the Onezone image MUST be the matching `-dev`
+#    nightly lineage too (docker.onedata.org/onezone-dev:develop) --
+#    pairing a `-dev` provider with a vanilla-release zone is a
+#    confirmed defect (m3-live-proof.md §2: permanent GS refusal,
+#    "Onezone version: 21.02.7 not compatible"). This needs the
+#    external docker-onedata-org imagePullSecret, same prerequisite
+#    sv-posix-multinode/v1 already documents.
+# 3. spec.managed.topology.growMode: Live on the Oneprovider CR (the
+#    whole point of this landscape) -- starts at workerNodes: 1
+#    (small footprint baseline), bumped to 2 (then possibly 3, subject
+#    to cluster capacity headroom) via a git-committed CR change: THE
+#    live-grow proof itself is GitOps-driven, not a kubectl patch.
+#
+# TLS + storage + RBAC pattern otherwise UNCHANGED from v2: dev-CA
+# ClusterIssuer (issuerRef + trustIssuerCA), Harbor pull-secret pattern
+# for the operator's own (private `dev`) image, NetworkPolicy stays
+# default-off (v0.6.1, it.202), RWX nfs-xattr PVC for shared-posix
+# multi-worker storage (the mandatory storage-serving proof channel).
+resources:
+  - 00-namespace.yaml
+  - operator/serviceaccount.yaml
+  - operator/role.yaml
+  - operator/rolebinding.yaml
+  - operator/deployment.yaml
+  - crs/secrets.yaml
+  - crs/storage-pvc.yaml
+  - crs/onezone.yaml
+  - crs/oneprovider.yaml

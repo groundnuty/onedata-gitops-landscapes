@@ -1,0 +1,31 @@
+# The RWX PVC that backs spec.managed.storageVolume on the Oneprovider
+# below -- mounted IDENTICALLY across every worker pod as workerNodes
+# grows (1->2->3), no per-pod subPathExpr, so the live-grown joiner
+# genuinely sees the same files as the pre-existing workers -- the
+# mandatory storage-serving channel for the live-grow proof (design
+# it.182: "now cheaply testable via the merged storageVolume shared
+# mount"). Dynamically provisioned by k8s-one's existing `nfs-xattr`
+# StorageClass, same as sv-posix-multinode.
+#
+# Kept SMALL (2Gi) deliberately: design it.209's DiskPressure incident
+# (research/gitops-v2-deploy.md) was driven by the Oneprovider
+# container's own ~21GiB ephemeral-storage footprint (Bundled Couchbase
+# co-located, no per-pod resource request/limit -- an unfixed v0.6.2
+# backlog item), NOT by this PVC's size -- but there is no reason to
+# add PVC-side pressure on top of that known risk for a landscape whose
+# only job is proving the grow mechanism with a handful of checksummed
+# files.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sv-livegrow-shared-posix
+  namespace: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-xattr
+  resources:
+    requests:
+      storage: 2Gi

@@ -1,0 +1,64 @@
+# THE proof CR: a managed Oneprovider running the DYNAMIC_MEMBERSHIP
+# core-patched image, growMode: Live -- upgrading the minikube-only
+# live-grow proof (research/livegrow-build.md: grow 1->2 in 67s, 2->3
+# in ~90s, 0 non-200 in 373 polls, zero restarts, storage-serving
+# proven via InitSpaceCaches) to real k8s-one multi-node hardware.
+#
+# Image provenance (design it.209's explicit maintainer directive: the
+# ONLY approved destination for a patched core image leaving large-dev
+# is our own private Harbor -- never any Onedata registry, never Docker
+# Hub): `oneprovider-dev:livegrow` (local docker daemon, built earlier
+# this campaign per phase4/image-build/Dockerfile.livegrow -- cumulative
+# patchset beams: graceful-db-backoff + M1 grow/DYNAMIC_MEMBERSHIP + P5
+# reconstruction + L3 clamp + it.115 safe-mode-reconcile fix + M3
+# scale-in, layered fresh over vanilla docker.onedata.org/oneprovider-dev
+# :develop -- REUSED as-is, no rebuild needed, this session only
+# retagged+pushed it) retagged and pushed to
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-patched:
+# dynmem-livegrow-hw1 (private `dev` project, pull-secret required --
+# see imagePullSecrets below).
+#
+# growMode: Live is a zero-effect field at workerNodes:1 (only matters
+# on a workerNodes INCREASE); starts here at the baseline single-worker
+# topology deliberately, matching the campaign's methodology: bring up
+# clean, baseline-serve, THEN grow via a git-committed workerNodes bump
+# (the actual measured proof), not a topology that starts already
+# grown.
+#
+# storageVolume: the RWX PVC (storage-pvc.yaml), shared identically
+# across every worker as workerNodes grows -- no per-pod subPathExpr --
+# so the live-grown joiner genuinely serves the SAME files the
+# pre-existing worker(s) already wrote, the mandatory storage-serving
+# proof channel this landscape exists to re-run on real hardware.
+apiVersion: onedata.org/v1alpha1
+kind: Oneprovider
+metadata:
+  name: provider
+  namespace: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "provider"
+  adminEmail: "sv-livegrow-admin@example.com"
+  onezoneRef:
+    name: zone
+    endpoint: zone-onezone.sv-livegrow.svc.cluster.local
+  onepanelCredentialsSecretRef:
+    name: provider-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-patched:dynmem-livegrow-hw1
+    imagePullSecrets:
+      - harbor-dev-pull
+    storageVolume:
+      persistentVolumeClaim:
+        claimName: sv-livegrow-shared-posix
+    topology:
+      databaseNodes: 1
+      workerNodes: 1
+      growMode: Live

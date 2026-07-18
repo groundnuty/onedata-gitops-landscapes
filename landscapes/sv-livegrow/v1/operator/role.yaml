@@ -1,0 +1,88 @@
+# Namespace-scoped Role (NOT a ClusterRole), copied verbatim from
+# sv-posix-multinode/v2's operator/role.yaml (which already carries
+# every RBAC rule this landscape needs, including the two rules that
+# matter most for growMode:Live specifically):
+#
+# - `pods/exec` create -- the LiveGrowDriver RPC surface
+#   (internal/deploy/livegrow_driver.go: ConfigureAdditionalNode,
+#   ImportProviderAuthFile, EnsureExpectedNodes, InitSpaceCaches) execs
+#   into pods via nodetool rpcterms, exactly the M3 WorkerDrainer
+#   technique (research/livegrow-build.md §1). Without this rule the
+#   live-grow RPCs 403 immediately.
+# - `cert-manager.io/certificates` -- this landscape drives TLS
+#   directly off each managed CR's own spec.tls.issuerRef (dev-CA),
+#   same as v2 (see v2's role.yaml header for the full live-caught
+#   defect this rule fixes: FailedMount/ContainerCreating without it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-livegrow-operator
+  namespace: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, persistentvolumeclaims, secrets, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups, oneclients, oneproviders, onezones, spaces, storagebackends, supports, users]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups/finalizers, oneclients/finalizers, oneproviders/finalizers, onezones/finalizers, spaces/finalizers, storagebackends/finalizers, supports/finalizers, users/finalizers]
+    verbs: [update]
+  - apiGroups: [onedata.org]
+    resources: [groups/status, oneclients/status, oneproviders/status, onezones/status, spaces/status, storagebackends/status, supports/status, users/status]
+    verbs: [get, patch, update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/finalizers]
+    verbs: [update]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/status]
+    verbs: [get, patch, update]
+---
+# Leader election (single replica here, but the upstream Deployment
+# still passes --leader-elect; unchanged pattern from v1/v2).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-livegrow-operator-leader-election
+  namespace: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]

@@ -1,0 +1,40 @@
+# Managed Onezone, `-dev` nightly lineage to match the patched
+# Oneprovider (see oneprovider.yaml's header + kustomization.yaml's
+# delta-2 for the full why: pairing a `-dev` nightly provider with the
+# vanilla release zone is a confirmed, previously-hit defect --
+# m3-live-proof.md §2, permanent GraphSync refusal on version
+# mismatch).
+#
+# PREREQUISITE (external, NOT created by this repo): an imagePullSecret
+# named docker-onedata-org must already exist in the sv-livegrow
+# namespace, holding real credentials for the private
+# docker.onedata.org registry -- genuine infra credentials, deliberately
+# NOT committed here, same prerequisite sv-posix-multinode/v1 already
+# documents (copy/recreate from that namespace's existing secret of the
+# same name, or from whatever the maintainer's canonical source is).
+#
+# TLS: dev-CA ClusterIssuer + trustIssuerCA, same productionized
+# pattern as sv-posix-multinode/v2 (platform/onedata-dev-ca/).
+apiVersion: onedata.org/v1alpha1
+kind: Onezone
+metadata:
+  name: zone
+  namespace: sv-livegrow
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "sv-livegrow-zone"
+  adminAccountSecretRef:
+    name: onezone-admin-account
+  onepanelCredentialsSecretRef:
+    name: onezone-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: docker.onedata.org/onezone-dev:develop
+    imagePullSecrets:
+      - docker-onedata-org
