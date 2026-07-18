@@ -241,14 +241,16 @@ make harbor-login                          # docker login to Harbor's `dev` proj
 make harbor-push IMAGE=...                 # tag + push an image into Harbor's `dev` project
 make harbor-pull-secret NS=...             # create the imagePullSecret for Harbor's `dev` project in namespace NS
 make dev-ca-deploy                         # apply the onedata-dev-ca platform Application (gated; it.194-196/200/203)
+make snapshot-image SRC=... NAME=...       # snapshot a mutable upstream image into Harbor `dev` as a dated tag + record it in images/SNAPSHOTS.md (it.230)
 ```
 
 ## Landscapes
 
 | Name | Version | What it proves | Operator image |
 |---|---|---|---|
-| [`sv-posix-multinode`](landscapes/sv-posix-multinode/v1/README.md) | `v1` | `spec.managed.storageVolume` on a real RWX `nfs-xattr` PVC + `workerNodes: 2` (it.161/164) -- the multi-worker shared-posix feature | `groundnuty/onedata-operator:v0.6.0` (**forward reference -- see landscape README**) |
-| [`sv-posix-multinode`](landscapes/sv-posix-multinode/v2/README.md) | `v2` | SAME feature as v1, "productionized" (it.196/203): dev-CA TLS (`trustIssuerCA`) + Harbor images (operator from the `dev` project, Onedata components via `dockerhub-proxy`) + NetworkPolicy-default-off. Deploys ALONGSIDE v1, own namespace | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1` (**forward reference -- see landscape README**) |
+| [`sv-posix-multinode`](landscapes/sv-posix-multinode/v1/README.md) | `v1` | `spec.managed.storageVolume` on a real RWX `nfs-xattr` PVC + `workerNodes: 2` (it.161/164) -- the multi-worker shared-posix feature | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` (re-pinned off `groundnuty/onedata-operator:v0.6.0`, it.230/it.238) |
+| [`sv-posix-multinode`](landscapes/sv-posix-multinode/v2/README.md) | `v2` | SAME feature as v1, "productionized" (it.196/203): dev-CA TLS (`issuerRef` only -- `trustIssuerCA` removed, it.238/Finding 11) + Harbor images (operator from the `dev` project, Onedata components via `dockerhub-proxy`) + NetworkPolicy-default-off. Deploys ALONGSIDE v1, own namespace | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` (bumped from v0.6.1, it.230/it.238) |
+| [`sv-livegrow`](landscapes/sv-livegrow/v1/README.md) | `v1` | TRUE LIVE WORKER GROW on real hardware (it.173/175/182/189) -- DYNAMIC_MEMBERSHIP core-patched Oneprovider. `trustIssuerCA` stays ON (registration-required, crash-loop accepted as a known cost -- see landscape README) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` (bumped from v0.6.1, it.230/it.238) |
 
 ## Harbor: proxy-cache + dev push target (it.178/179/183; real LE TLS via it.185; DEFAULT image path since it.203)
 
@@ -385,9 +387,9 @@ difference:
   has **no public equivalent at all** (a locally patched core build) --
   the landscape referencing it is *structurally* non-portable; there is
   no fallback ref to fall back to.
-- **it.203 / v2's operator image** (`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.1`)
+- **it.203 / v2's operator image** (`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3`)
   is an **unmodified, otherwise-public release** -- the SAME bits are
-  also pushed to Docker Hub as `groundnuty/onedata-operator:v0.6.1` per
+  also pushed to Docker Hub as `groundnuty/onedata-operator:v0.6.3` per
   it.203's own directive. v2 pins the Harbor ref by **policy choice**
   (this cluster's own hardware, per the maintainer's directive), not
   because a public equivalent doesn't exist. A cluster without this
@@ -444,8 +446,11 @@ or directly on a Pod spec via `spec.imagePullSecrets`. First wired up
 by `sv-posix-multinode/v2` (`operator/serviceaccount.yaml`) -- its
 operator image comes from the `dev` project (it.203), so it needs
 exactly this: `make harbor-pull-secret NS=sv-posix-multinode-v2` before
-that landscape's operator pod can pull. (`v1`, still pinning the public
-`groundnuty/onedata-operator:v0.6.0` ref, needs none of this.)
+that landscape's operator pod can pull. As of the it.230/it.238 re-pin,
+`v1` needs the identical secret too (`make harbor-pull-secret
+NS=sv-posix-multinode`) -- its operator and both component images now
+also come from Harbor's `dev` project, see `landscapes/sv-posix-multinode/v1/README.md`'s
+"Image pins".
 
 ## Argo CD config notes (see `argocd/README.md` for the full writeup)
 
