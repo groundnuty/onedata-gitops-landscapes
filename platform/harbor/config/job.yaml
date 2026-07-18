@@ -35,6 +35,13 @@ spec:
         platform-app: harbor
     spec:
       restartPolicy: Never
+      # it.206: needed for step 4 of configure-harbor.sh to read/write
+      # the harbor-dev-robot Secret via kubectl (Harbor never re-shows
+      # a robot's secret, so this Job is what captures + persists the
+      # one-time value it gets back) -- see config/rbac.yaml for the
+      # least-privilege Role this SA is bound to (create Secrets in
+      # this namespace; get/update/patch only the one it owns by name).
+      serviceAccountName: harbor-configure
       securityContext:
         runAsNonRoot: true
         # alpine/k8s ships no USER directive (defaults to root), so
@@ -50,11 +57,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: configure-harbor
-          # alpine/k8s bundles curl+jq+bash (kubectl/helm unused here,
-          # but this is the well-known, actively-maintained image for
+          # alpine/k8s bundles curl+jq+bash+kubectl (helm unused here;
+          # this is the well-known, actively-maintained image for
           # exactly this "small cluster-side automation script" shape;
           # pinned to the tag matching this cluster's kubectl version,
           # 1.36.2, confirmed to exist on Docker Hub at build time).
+          # kubectl is no longer dead weight as of it.206: step 4 of
+          # configure-harbor.sh uses it to read/write the
+          # harbor-dev-robot Secret (see serviceAccountName above).
           image: alpine/k8s:1.36.2
           command: ["/bin/bash", "/scripts/configure-harbor.sh"]
           securityContext:
@@ -84,11 +94,13 @@ spec:
                   key: HARBOR_ADMIN_PASSWORD
             - name: ROBOT_SHORT_NAME
               value: large-dev-push
-            - name: ROBOT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: harbor-dev-robot
-                  key: password
+              # No ROBOT_SECRET env here (it.206): Harbor never honors
+              # a caller-supplied robot secret in this version (see
+              # configure-harbor.sh's it.206 CORRECTION comment) --
+              # there is nothing to read from a Secret ahead of time.
+              # The script instead WRITES harbor-dev-robot itself, once
+              # it has a real secret captured from Harbor's create
+              # response.
           resources:
             requests:
               cpu: 10m

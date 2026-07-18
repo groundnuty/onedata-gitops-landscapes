@@ -1,0 +1,61 @@
+# it.206: the harbor-configure-projects Job (config/job.yaml) needs to
+# WRITE the harbor-dev-robot Secret, not just read it -- see
+# config/configure-harbor.sh's it.206 CORRECTION comment for why
+# (Harbor's RobotCreate never honors a caller-supplied secret; the
+# real one is only ever shown once, in the create response, and this
+# Job is what captures + persists it). Least-privilege, namespace-
+# scoped: this ServiceAccount can create Secrets in this namespace, and
+# can only get/update/patch the ONE Secret it owns by name.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-configure
+  namespace: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-configure-robot-secret
+  namespace: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  # "create" cannot be scoped by resourceNames (the object doesn't
+  # exist yet at admission time) -- kept as its own rule, still bounded
+  # to "secrets" only within this one namespace via the Role itself.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # get (existence check) + update/patch (rotate path, `kubectl apply`)
+  # -- scoped to the one Secret this Job ever touches.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["harbor-dev-robot"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-configure-robot-secret
+  namespace: onedata-gitops-harbor
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    platform-app: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+subjects:
+  - kind: ServiceAccount
+    name: harbor-configure
+    namespace: onedata-gitops-harbor
+roleRef:
+  kind: Role
+  name: harbor-configure-robot-secret
+  apiGroup: rbac.authorization.k8s.io

@@ -222,31 +222,71 @@ explanation.
 ## Robot account and auth model
 
 `platform/harbor/secrets.yaml` (same plaintext-demo-creds-with-loud-warning
-convention as every landscape's `crs/secrets.yaml`) holds:
+convention as every landscape's `crs/secrets.yaml`) holds only:
 
 - `harbor-admin-secret` -- Harbor's own `admin` superuser password,
   wired in via the chart's `existingSecretAdminPassword` (not the
   chart's own inline default).
-- `harbor-dev-robot` -- `username: robot$dev+large-dev-push`,
-  `password: demo-harbor-dev-robot-secret`.
 
-The robot's password is **not** captured off a live API response after
-the fact -- Harbor's `RobotCreate` API accepts a caller-supplied
-`secret` field directly (verified against the v2.0 swagger's
-`RobotCreate` schema), so `configure-harbor.sh` passes this exact,
-pre-committed demo string as the robot's secret at creation time. That
-is what makes it possible for this to be a plain, static, git-committed
-demo value in the first place, exactly like every other credential in
-this repo, rather than something generated once and then needing to be
-stashed somewhere after the fact.
+### it.206 CORRECTION: the robot's secret can't be pre-committed
 
-**If the robot secret ever needs to rotate:** delete the robot account
-via the Harbor API/UI AND change `harbor-dev-robot`'s `password` value
-in the same commit, then re-run `make harbor-configure` -- the script
-will see no existing robot with that name and create a fresh one with
-the new secret. Changing only the Secret without deleting the live
-robot leaves the old secret still valid on the Harbor side (documented
-in the script's own log line for this exact case).
+An earlier version of this doc (and of `configure-harbor.sh`) asserted
+that Harbor's `RobotCreate` API accepts a caller-supplied `secret`
+field, "verified against the v2.0 swagger's `RobotCreate` schema" --
+and on that basis, committed a plain demo string as `harbor-dev-robot`'s
+password, passed verbatim at creation time.
+
+**That assertion was wrong.** Live testing against this cluster's
+actual Harbor (`goharbor/harbor-core:v2.14.4`) plus reading its source
+(`src/controller/robot/controller.go`'s `Create()`) confirmed the
+server *always* calls `CreateSec()` and never reads the request's
+`Secret` field at all -- every robot's real secret is generated
+server-side and shown **exactly once**, in the `201` response body.
+There's no create-time or update-time API to pin it (no
+`/robots/{id}/sec` endpoint in this version either -- checked live,
+`404`). A committed demo password for this Secret was never actually
+the robot's working credential; it just happened not to matter until
+something forced a re-create.
+
+So `harbor-dev-robot` is now a **Job-managed output**, not a GitOps
+input:
+
+1. `config/configure-harbor.sh` treats the *presence* of the
+   `harbor-dev-robot` k8s Secret as the only available idempotency
+   signal ("some previous run already captured a working secret --
+   leave the robot alone").
+2. When the Secret is absent, the script locates any existing robot of
+   the same name (see the query-encoding note below), deletes it (its
+   old secret is unrecoverable regardless), creates a fresh one,
+   captures the one-time `.secret` from the response, and writes it to
+   the k8s Secret itself -- via its own ServiceAccount
+   (`config/rbac.yaml`: create Secrets in this namespace; get/update/
+   patch only this one Secret by name).
+3. `secrets.yaml` deliberately does **not** declare `harbor-dev-robot`.
+   `make harbor-configure` re-applies the whole kustomization
+   (`kustomize build | kubectl apply`) on every run; a placeholder
+   block there would silently overwrite the real captured secret back
+   to the placeholder on every single re-run.
+
+**A secondary bug this surfaced and also fixed:** the existence check
+this script uses, `GET /robots?q=name=<full name>`, reliably returns
+zero results against this Harbor version regardless of URL-encoding or
+case -- confirmed live (`X-Total-Count: 0` even for a robot that
+`GET /robots/{id}` returns directly). The working query scopes by
+`Level=project,ProjectID=<id>` and fuzzy-matches the short name
+(`name=~<short-name>`), then filters to an exact match client-side in
+`jq`. Before this fix, that false-negative made the script always
+attempt a `POST` against an already-existing robot, hit a `409`, and
+treat it as **FATAL** -- so `harbor-configure` could never succeed a
+second time even when nothing was actually wrong. A `409` on create is
+no longer fatal: it now triggers the same locate-and-rotate path,
+falling back to a bounded ID scan if even the fixed query somehow
+misses it.
+
+**If the robot secret ever needs to rotate:** just delete the
+`harbor-dev-robot` k8s Secret and re-run `make harbor-configure` --
+the script will find the (now secret-unknown) robot, delete it, create
+a fresh one, and write the newly-captured secret back.
 
 ## it.183: the push-target authorization + public-refs exception
 

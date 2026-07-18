@@ -6,9 +6,13 @@ kind: Kustomization
 # same convention as every landscapes/<name>/<version>/:
 #
 #   wave -1  namespace.yaml                     the namespace itself
-#   wave  0  secrets.yaml                       demo admin + dev-robot creds
+#   wave  0  secrets.yaml                       demo admin creds only (it.206: harbor-dev-robot is a
+#                                                Job-managed OUTPUT now, never a committed input -- see
+#                                                secrets.yaml's it.206 CORRECTION comment)
 #   wave  0  certificate.yaml                   the Let's Encrypt harbor-tls Certificate (it.185 TLS-v2;
 #                                                needs the cert-manager-desec platform app synced FIRST)
+#   wave  0  config/rbac.yaml                   ServiceAccount+Role+RoleBinding letting the config Job
+#                                                write the harbor-dev-robot Secret (it.206)
 #   wave  0  harbor-configure-script (generated) the config-as-code script
 #   wave  0  vendor/harbor-1.18.4-rendered.yaml  the vendored `helm template` output
 #   wave  1  config/job.yaml                     one-shot config-as-code Job (registries/projects/robot)
@@ -31,6 +35,7 @@ resources:
   - namespace.yaml
   - secrets.yaml
   - certificate.yaml
+  - config/rbac.yaml
   - vendor/harbor-1.18.4-rendered.yaml
   - config/job.yaml
 
