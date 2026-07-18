@@ -2275,6 +2275,32 @@ spec:
                           validated-in-reconciler judgment call (see its doc comment).
                         format: int32
                         type: integer
+                      growMode:
+                        default: Cold
+                        description: |-
+                          growMode selects the mechanism a workerNodes INCREASE drives once a
+                          new StatefulSet ordinal's pod is Running: Cold (default) drives
+                          onepanel's shipped add_nodes, which bounces the whole worker layer +
+                          cluster_manager to rebuild the ring (design it.166 -- disruptive but
+                          works against ANY op_worker image, patched or stock). Live is the
+                          opt-in, zero-disruption path (design it.173/175/182): the new host is
+                          configured and started ALONE while the existing ring keeps running,
+                          and the new worker joins via the core M1 DYNAMIC_MEMBERSHIP live
+                          ring-join (cm_conn_req -> scale-out barrier -> ring resize ->
+                          safe-mode reconcile) instead of a restart. Live REQUIRES an op_worker/
+                          cluster_manager image built from the `operator-patchset` branches
+                          (deliverables/core-mod-branch-workflow.md) with DYNAMIC_MEMBERSHIP
+                          support -- on a stock image the new worker never satisfies
+                          is_scale_out_candidate/2 and the join never progresses; the
+                          controller detects this and reports it loudly (LiveGrowStalled, see
+                          oneprovider_livegrow.go) rather than hanging silently. A workerNodes
+                          DECREASE is unaffected by this field -- M3's graceful drain
+                          (ReconcileWorkerScaleIn) is unconditionally live/zero-loss already and
+                          has no cold/live distinction of its own.
+                        enum:
+                        - Cold
+                        - Live
+                        type: string
                       workerNodes:
                         description: |-
                           workerNodes is the number of StatefulSet pods running op_worker
@@ -2473,6 +2499,23 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  trustIssuerCA:
+                    description: |-
+                      trustIssuerCA mounts the issued certificate Secret's ca.crt into
+                      every component's trusted-CA directory (cacerts_dir) -- set this
+                      when issuerRef points at a CA or SelfSigned issuer, whose Secrets
+                      carry ca.crt (a development CA is the common case). Leave false
+                      (the default) for ACME/public issuers such as Let's Encrypt: their
+                      Secrets carry no ca.crt, and their roots are already present in
+                      every component's public trust store, so no extra mount is needed.
+                      Design it.194/195/196 (research/dev-ca-trust-design.md) -- this
+                      closes the trust-distribution gap that a public-ACME landscape
+                      never needed: a private CA's leaf certs are served (issuerRef
+                      alone is already sufficient for that), but with this left unset no
+                      peer trusts them, so provider<->zone GraphSync, inter-provider
+                      rtransfer, and oneclient all fail their TLS handshake even though
+                      the certificate itself issued cleanly.
+                    type: boolean
                 type: object
             required:
             - adminEmail
@@ -2677,6 +2720,46 @@ spec:
                 items:
                   type: string
                 type: array
+              workerLiveGrowHost:
+                description: |-
+                  workerLiveGrowHost is the single worker host FQDN currently
+                  undergoing a growMode:Live join attempt (design it.173/175/182), or
+                  "" if none is in flight. Unlike WorkerScaleUpTaskID (one task id
+                  covers an arbitrary batch of hosts, because onepanel's add_nodes
+                  itself batches), live-grow provisions and observes exactly ONE host
+                  at a time -- see reconcileWorkerLiveGrow's (oneprovider_livegrow.go)
+                  doc comment for why batching live joins is deliberately out of
+                  scope. A workerNodes increase of more than one, on Live, is handled
+                  by looping this single-host state machine across successive
+                  reconciles, oldest-desired-ordinal first.
+                type: string
+              workerLiveGrowStartedAt:
+                description: |-
+                  workerLiveGrowStartedAt is when reconcileWorkerLiveGrow last drove
+                  the provisioning RPCs (configure_additional_node/
+                  import_provider_auth_file/EXPECTED_NODES) + the host-scoped
+                  PATCH /provider/workers/:host start for WorkerLiveGrowHost -- the
+                  clock LiveGrowStalled's deadline (deploy.LiveGrowJoinTimeout) is
+                  measured against. Cleared alongside WorkerLiveGrowHost once the host
+                  reports healthy or the attempt is abandoned.
+                format: date-time
+                type: string
+              workerScaleUpTaskId:
+                description: |-
+                  workerScaleUpTaskId is the onepanel task id (from add_provider_workers'
+                  202 response) currently being tracked for a managed workerNodes
+                  INCREASE (design it.166, closing it.163/154-P1's gap). Set by
+                  reconcileWorkerScaleUp's driveAddNodes and polled by pollAddNodesTask
+                  (see oneprovider_scaleup.go) until onepanel's own GET /provider/workers
+                  reports every desired worker host as known -- the terminal Ready
+                  transition is decided from THAT live re-check, not from this task's
+                  status alone (mirrors DeployTaskID/pollDeployTask's own "task done !=
+                  safe to declare done" judgment call). On a task failure this is
+                  deliberately left set (mirrors DeployTaskID's identical choice) so a
+                  human can inspect/clear it; the operator does not auto-retry a failed
+                  cold scale-up. Meaningless outside managed mode with
+                  spec.managed.topology set.
+                type: string
             type: object
         required:
         - spec
