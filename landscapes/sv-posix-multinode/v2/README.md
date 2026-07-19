@@ -9,7 +9,7 @@ rough edges v1 carried closed out:
 | | v1 | v2 |
 |---|---|---|
 | TLS | operator default self-signed + a separate, UNWIRED self-signed Issuer+Certificate (honest gap) | `spec.tls.issuerRef` -> the shared `onedata-dev-ca` ClusterIssuer, **`trustIssuerCA` REMOVED** (design it.194-196/200 introduced it; it.238/Finding 11 removed it again -- crashes a managed Oneprovider's `rtransfer_link`, core-side bug, no operator-side fix possible until patch 0013 lands in a deployed image; see `crs/oneprovider.yaml`'s header) |
-| Operator image | `groundnuty/onedata-operator:v0.6.0` (public Docker Hub) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3` (Harbor's private `dev` project, design it.203; bumped from v0.6.1 by the it.230/it.238 sweep) |
+| Operator image | `groundnuty/onedata-operator:v0.6.0` (public Docker Hub) | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4` (Harbor's private `dev` project, design it.203; bumped from v0.6.1 by the it.230/it.238 sweep) |
 | Onezone/Oneprovider images | `docker.onedata.org/{onezone,oneprovider}-dev:develop` (private registry + external `docker-onedata-org` imagePullSecret) | `harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/{onezone,oneprovider}:21.02.7` (Harbor's public proxy-cache of a PUBLIC Docker Hub image; no imagePullSecret needed for these two -- noted as a release-tag re-pin candidate in `images/SNAPSHOTS.md`, not yet digest-pinned) |
 | NetworkPolicy | additive landscape-side Couchbase-ports shim (`crs/networkpolicy-couchbase.yaml`, working around an operator-chart defect) | GONE -- the chart's own it.201 fix + it.202's NetworkPolicy-default-OFF flip (v0.6.1 onward) make the shim unnecessary |
 | Namespace | `sv-posix-multinode` (RUNNING, left untouched) | `sv-posix-multinode-v2` (separate; does not collide with v1) |
@@ -42,7 +42,7 @@ real path instead of carrying a dead placeholder forward.
 
 ## Image pins
 
-1. **`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3`**
+1. **`harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4`**
    (`operator/deployment.yaml`). The original scaffold's v0.6.1 forward
    reference shipped and was live-deployed; the it.230/it.238
    upstream-image-snapshot sweep bumped the pin to v0.6.3, which

@@ -9,7 +9,7 @@
 # IMAGE PIN (it.203 Harbor-for-everything; bumped v0.6.1 -> v0.6.3 by
 # the it.230/it.238 upstream-image-snapshot sweep):
 # ============================================================
-# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3 --
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4 --
 # Harbor's private `dev` project. v0.6.1 (the original scaffold's
 # forward reference) shipped and was live-deployed; this bump carries
 # forward everything v0.6.1 had (it.200 trustIssuerCA mount, it.201
@@ -72,7 +72,7 @@ spec:
       containers:
         - name: manager
           # See the IMAGE PIN note at the top of this file.
-          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.3
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4
           command: ["/manager"]
           args:
             - --leader-elect
