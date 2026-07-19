@@ -1,0 +1,54 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# sv-federation/v1 -- the it.283/287 maintainer-ordered FEDERATION
+# landscape: 1 Onezone + TWO per-role-DECOMPOSED, multi-node, Composed
+# Oneproviders (provider-a / provider-b), one Space supported on BOTH,
+# and an Oneclient mounted against the decomposed provider-a. This is
+# v0.6.5's hardware debut and the deepest networking validation the
+# decomposed architecture has had: the cross-provider rtransfer
+# replication path (write via A, read via B) has NEVER been exercised
+# on decomposed providers before this landscape.
+#
+# Modeled on sv-posix-multinode/v2 (dev-CA TLS with trustIssuerCA
+# RESTORED per the v0.6.5 re-pin -- commonName fix confirmed live,
+# cn-fix.md Arm 2 -- + Harbor `dev`-project -on4 flags-ON snapshot
+# images + a v0.6.5 operator pin), but doubles the Oneprovider CR and
+# adds the per-role topology knobs (databaseMode: Composed,
+# managerNodes: 1) that make each provider a REAL per-role split:
+# separate cluster_manager / op_worker / Couchbase StatefulSets per
+# provider, not the single combined pod every earlier landscape used.
+#
+# Ordered by argocd.argoproj.io/sync-wave annotations:
+#
+#   wave -1  00-namespace.yaml            the sv-federation namespace
+#   wave  1  operator/                    namespace-scoped, v0.6.5-pinned onedata-operator (Harbor `dev` image)
+#   wave  2  crs/                         demo Secrets, two storageVolume PVCs, Onezone, two Oneproviders
+#
+# RBAC NOTE (new finding, it.287 -- see operator/role.yaml and
+# operator/clusterrole-priorityclass.yaml headers): v2's own vendored
+# Role has drifted a SECOND time relative to the operator's upstream
+# ClusterRole (config/rbac/role.yaml) -- it never picked up the 89cc0b9
+# PDB+PriorityClass RBAC the per-role cluster_manager hardening added.
+# Worse, CRD default flips (databaseMode default Bundled->Composed,
+# design it.251) mean ANY Oneprovider CR that merely sets
+# spec.managed.topology is per-role by default now -- so this gap would
+# also bite a redeployed v2 today, not just this landscape. Fixed here
+# with the missing namespaced `policy/poddisruptionbudgets` rule PLUS a
+# separate ClusterRole+ClusterRoleBinding for `scheduling.k8s.io/
+# priorityclasses` (a namespaced Role/RoleBinding cannot authorize a
+# cluster-scoped resource at all -- PriorityClass has no namespace to
+# match against). Flagged in this landscape's README for the v2
+# maintainer to backport.
+resources:
+  - 00-namespace.yaml
+  - operator/serviceaccount.yaml
+  - operator/role.yaml
+  - operator/rolebinding.yaml
+  - operator/clusterrole-priorityclass.yaml
+  - operator/deployment.yaml
+  - crs/secrets.yaml
+  - crs/storage-pvc.yaml
+  - crs/onezone.yaml
+  - crs/oneprovider-a.yaml
+  - crs/oneprovider-b.yaml

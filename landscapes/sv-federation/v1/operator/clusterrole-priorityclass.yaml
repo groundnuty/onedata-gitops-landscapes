@@ -1,0 +1,61 @@
+# PriorityClass RBAC -- CLUSTER-SCOPED, deliberately split out of
+# role.yaml's namespaced Role. See internal/controller/
+# oneprovider_rolesplit.go's reconcileManagerPriorityClass: every
+# per-role Composed Oneprovider's cluster_manager StatefulSet
+# references ONE shared, cluster-scoped PriorityClass
+# (deploy.BuildManagerPriorityClass -- a fixed name, not
+# per-Oneprovider or per-namespace) as cheap restart-priority insurance
+# (design it.279, commit 89cc0b9). A namespaced Role bound via a
+# namespaced RoleBinding CANNOT authorize a request against a
+# cluster-scoped resource at all: RBAC authorization for a cluster-scoped
+# object carries no namespace on the request, so it never matches a
+# RoleBinding's own namespace scope, regardless of what verbs the Role
+# lists for it (this is why role.yaml deliberately drops the equally
+# cluster-scoped `persistentvolumes` resource rather than listing it
+# uselessly). This landscape's two Oneprovider CRs (provider-a/
+# provider-b) are BOTH per-role (databaseMode: Composed + topology set,
+# managerNodes: 1 explicit) -- reconcileManagerPriorityClass fires
+# unconditionally for both and sets Available=False
+# ("ManagerPriorityClassFailed") on ANY create/update error, so this is
+# a hard blocker without a real ClusterRole+ClusterRoleBinding, not an
+# optional hardening extra.
+#
+# Scoped to exactly this one resource (least privilege): the operator's
+# upstream ClusterRole (config/rbac/role.yaml) bundles this rule into
+# its single cluster-wide manager-role for the shared, cluster-scoped
+# v0.5.0 deployment model -- that model does not apply to the
+# namespace-scoped "operator lives in the landscape" pattern this repo
+# uses, so this file exists purely to carry forward the one rule that
+# genuinely cannot be namespace-scoped, not to reintroduce a
+# cluster-wide manager.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sv-federation-operator-priorityclass
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [scheduling.k8s.io]
+    resources: [priorityclasses]
+    verbs: [create, delete, get, list, patch, update, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sv-federation-operator-priorityclass
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sv-federation-operator-priorityclass
+subjects:
+  - kind: ServiceAccount
+    name: sv-federation-operator
+    namespace: sv-federation

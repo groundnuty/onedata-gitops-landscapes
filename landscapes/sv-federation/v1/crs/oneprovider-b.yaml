@@ -1,0 +1,39 @@
+# provider-b: second of the two per-role-DECOMPOSED providers -- see
+# provider-a's header (crs/oneprovider-a.yaml) for the full mechanism
+# and rationale, identical here except for name/storage/credentials.
+# provider-a and provider-b are peers, not primary/secondary: the
+# federation proof exercises BOTH directions (write via A read via B,
+# then write via B read via A).
+apiVersion: onedata.org/v1alpha1
+kind: Oneprovider
+metadata:
+  name: provider-b
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "provider-b"
+  adminEmail: "sv-federation-admin@example.com"
+  onezoneRef:
+    name: zone
+    endpoint: zone-onezone.sv-federation.svc.cluster.local
+  onepanelCredentialsSecretRef:
+    name: provider-b-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0020-on4
+    imagePullSecrets:
+      - harbor-dev-pull
+    storageVolume:
+      persistentVolumeClaim:
+        claimName: provider-b-posix
+    topology:
+      databaseMode: Composed
+      databaseNodes: 1
+      workerNodes: 2
+      managerNodes: 1

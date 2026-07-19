@@ -1,0 +1,107 @@
+# Namespace-scoped Role (NOT a ClusterRole), based on
+# sv-posix-multinode/v2's operator/role.yaml (itself based on v1's),
+# with the SAME two deliberate deltas from the upstream ClusterRole
+# (config/rbac/role.yaml): drops the cluster-scoped `persistentvolumes`
+# resource (a namespaced Role/RoleBinding cannot authorize a
+# cluster-scoped resource regardless of what verbs are listed for it,
+# so carrying it here would be pure noise -- this landscape uses PVCs,
+# never touches PVs directly); keeps `testing.onedata.org/
+# teststoragefixtures` even though this landscape ships no
+# TestStorageFixture (harmless surplus, matches the upstream
+# ClusterRole 1:1 for that resource so a future fixture-using CR needs
+# no RBAC edit).
+#
+# NEW FIX (it.287, this landscape): adds the `policy/
+# poddisruptionbudgets` rule. v2's own vendored Role never picked this
+# up when commit 89cc0b9 (PDB + PriorityClass hardening for the per-role
+# cluster_manager, design it.279) added it to the upstream ClusterRole
+# -- this is the SAME "dual-release-drift" class of defect the it.209
+# cert-manager.io/certificates fix (see v2's role.yaml header) already
+# named once. Confirmed live-relevant here (not just theoretical): with
+# the CRD default flip (databaseMode Bundled->Composed, design it.251)
+# and this landscape's explicit managerNodes:1, both Oneprovider CRs
+# below ARE per-role -- reconcileManagerPDB (internal/controller/
+# oneprovider_rolesplit.go) fires unconditionally for a per-role
+# cluster_manager release and would 403 without this rule, blocking
+# Available with a PDB-reconcile error.
+#
+# PriorityClass is handled SEPARATELY (clusterrole-priorityclass.yaml)
+# because it is cluster-scoped -- see that file's header for why a Role
+# rule for it here would be a complete no-op.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-federation-operator
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, persistentvolumeclaims, secrets, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
+  # it.287 fix -- see header comment.
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups, oneclients, oneproviders, onezones, spaces, storagebackends, supports, users]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [onedata.org]
+    resources: [groups/finalizers, oneclients/finalizers, oneproviders/finalizers, onezones/finalizers, spaces/finalizers, storagebackends/finalizers, supports/finalizers, users/finalizers]
+    verbs: [update]
+  - apiGroups: [onedata.org]
+    resources: [groups/status, oneclients/status, oneproviders/status, onezones/status, spaces/status, storagebackends/status, supports/status, users/status]
+    verbs: [get, patch, update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/finalizers]
+    verbs: [update]
+  - apiGroups: [testing.onedata.org]
+    resources: [teststoragefixtures/status]
+    verbs: [get, patch, update]
+---
+# Leader election (single replica here, but the upstream Deployment
+# still passes --leader-elect; unchanged from v1/v2).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sv-federation-operator-leader-election
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]

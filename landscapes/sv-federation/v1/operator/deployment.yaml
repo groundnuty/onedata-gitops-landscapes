@@ -1,0 +1,91 @@
+# Namespace-scoped onedata-operator instance for sv-federation ONLY:
+# --watch-namespace restricts its controller-runtime cache to
+# sv-federation, the it.176 "operator version lives in the landscape"
+# model -- never sees, and cannot reconcile, any other landscape's own
+# namespace-scoped operator/CRs.
+#
+# IMAGE PIN: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5
+# (digest sha256:8d8188a638838c962ca205f9655c0f9a206b5e7efaf7bb08c278f7c5e5adf9d5,
+# pull-verified from large-dev before this landscape was authored) --
+# the release that merged per-role decomposition (Milestone D,
+# 7317e98) INTO the same release train as the core-first delete+flip
+# (4fed69c). v0.6.5+ REQUIRES patched component images (see
+# crs/oneprovider-a.yaml / crs/oneprovider-b.yaml / crs/onezone.yaml's
+# IMAGE notes) -- do not pair with stock/vanilla core images.
+#
+# `make harbor-pull-secret NS=sv-federation` must be run before this
+# pulls -- see the landscape README's gated deploy order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sv-federation-operator
+  namespace: sv-federation
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: onedata-operator
+    landscape: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      landscape: sv-federation
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: onedata-operator
+        landscape: sv-federation
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: sv-federation-operator
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5
+          command: ["/manager"]
+          args:
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+            - --watch-namespace=sv-federation
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

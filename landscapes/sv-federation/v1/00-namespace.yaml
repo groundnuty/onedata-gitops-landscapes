@@ -1,0 +1,17 @@
+# Wave -1 (strictly before any namespaced resource): the namespace
+# itself. sv-federation is a NEW landscape (design it.283/287), not a
+# version bump of an existing one -- unsuffixed name, same convention
+# as sv-posix-multinode/v1's own 00-namespace.yaml (the FIRST version
+# of a landscape gets the unsuffixed namespace name; a later version
+# that must coexist alongside a running earlier one, like
+# sv-posix-multinode/v2, gets a version-suffixed namespace instead).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sv-federation
+  labels:
+    app.kubernetes.io/part-of: onedata-gitops-landscapes
+    landscape: sv-federation
+    landscape-version: v1
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

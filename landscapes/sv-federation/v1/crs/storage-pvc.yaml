@@ -1,0 +1,41 @@
+# TWO separate RWX PVCs -- one per provider, each backing that
+# provider's own spec.managed.storageVolume (crs/oneprovider-a.yaml /
+# crs/oneprovider-b.yaml), mounted identically across both of that
+# provider's own worker pods (workerNodes: 2 each), no per-pod
+# subPathExpr -- the same it.161/164 multi-worker shared-posix feature
+# v1/v2 already proved live on real hardware (design it.198), applied
+# independently per provider so provider-a and provider-b have
+# genuinely separate physical storage (this is a real federation test:
+# a file written on provider-a's storage must travel the network to
+# reach provider-b, not be trivially visible via a shared filesystem).
+# Dynamically provisioned by k8s-one's existing `nfs-xattr`
+# StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provider-a-posix
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-xattr
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provider-b-posix
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-xattr
+  resources:
+    requests:
+      storage: 5Gi

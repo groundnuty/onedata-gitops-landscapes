@@ -1,0 +1,43 @@
+# Single managed Onezone -- federates BOTH Oneproviders below. Onezone
+# topology decomposition is out of scope for the per-role feature (v1
+# scope note in api/v1alpha1/oneprovider_types.go: "Onezone topology...
+# remains single-node regardless of this field"), so this CR is
+# unchanged in shape from every prior landscape's onezone.yaml.
+#
+# TLS: onedata-dev-ca ClusterIssuer, trustIssuerCA: true -- RESTORED
+# per the v0.6.5 re-pin (commonName fix shipped v0.6.4, confirmed live
+# cn-fix.md Arm 2: 12 clean minutes, zero rtransfer_link crashes,
+# trustIssuerCA:true + issuerRef fully working end-to-end). Also now
+# REQUIRED, not just safe (deploy-test-v064.md defect A): without it,
+# onepanel's own registration-time TLS validation against this Onezone
+# can never complete for either provider.
+#
+# IMAGE: this project's own flags-ON patched snapshot (images/
+# SNAPSHOTS.md "-on4" row) -- REGISTERED_BOOT_IDEMPOTENCE,
+# OZ_DOMAIN_BOOT_DERIVE, F12_HOSTS_FIX, NODE_DOWN_GUARD all ON.
+# Requires the harbor-dev-pull imagePullSecret (private Harbor `dev`
+# project). Pull-verified from large-dev before this landscape was
+# authored: digest sha256:ed56ca59005d3a27fb2a9356a3a711373714663434eb2bfee7a9ad10b3e2938c.
+apiVersion: onedata.org/v1alpha1
+kind: Onezone
+metadata:
+  name: zone
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "sv-federation-zone"
+  adminAccountSecretRef:
+    name: onezone-admin-account
+  onepanelCredentialsSecretRef:
+    name: onezone-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260719-p0012.0014.0015.0016.0018.0019-on4
+    imagePullSecrets:
+      - harbor-dev-pull

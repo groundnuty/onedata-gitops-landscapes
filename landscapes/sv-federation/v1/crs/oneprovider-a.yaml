@@ -1,0 +1,64 @@
+# provider-a: first of the TWO per-role-DECOMPOSED, multi-node,
+# Composed-database Oneproviders this landscape exists to prove
+# (design it.90 realization, merged master 7317e98). Real per-role
+# StatefulSet split via databaseMode: Composed + spec.managed.topology
+# set (managerNodes: 1 explicit) -- NOT the single combined pod every
+# earlier landscape (sv-posix-multinode v1/v2) used:
+#
+#   provider-a-oneprovider-worker    StatefulSet, 2 replicas (op_worker only)
+#   provider-a-oneprovider-cm        StatefulSet, 1 replica (cluster_manager only)
+#   provider-a-oneprovider-couchbase StatefulSet, 1 replica (Composed database, own PVC)
+#
+# TLS: onedata-dev-ca ClusterIssuer, trustIssuerCA: true -- see
+# onezone.yaml's header for the full why. Cross-provider rtransfer
+# (THE proof this landscape exists to gather) additionally depends on
+# this: rtransfer_link's own TLS trust for the peer provider's endpoint
+# comes from the same dev-CA chain both providers share.
+#
+# IMAGE: this project's own flags-ON patched snapshot (images/
+# SNAPSHOTS.md "-on4" row) -- REGISTERED_BOOT_IDEMPOTENCE,
+# OZ_DOMAIN_BOOT_DERIVE, F12_HOSTS_FIX, NODE_DOWN_GUARD ON;
+# CHASH_ACCESSOR_GUARD/DISTERL_TLS/RTRANSFER_CA_FILTER/
+# HELPER_CACHE_REVALIDATE stay OFF. Pull-verified from large-dev before
+# this landscape was authored: digest
+# sha256:3597df164f22e7a7500a0e04ab9f78e79c438a96fece2e74934867700a6c5ba8.
+# Requires the harbor-dev-pull imagePullSecret.
+#
+# storageVolume: provider-a's OWN separate PVC (crs/storage-pvc.yaml)
+# -- physically distinct from provider-b's, by design: this is a real
+# federation test, so a file must genuinely cross the network via
+# rtransfer to go from provider-a's storage to provider-b's, not be
+# trivially visible through a shared filesystem.
+apiVersion: onedata.org/v1alpha1
+kind: Oneprovider
+metadata:
+  name: provider-a
+  namespace: sv-federation
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: "provider-a"
+  adminEmail: "sv-federation-admin@example.com"
+  onezoneRef:
+    name: zone
+    endpoint: zone-onezone.sv-federation.svc.cluster.local
+  onepanelCredentialsSecretRef:
+    name: provider-a-onepanel-creds
+  tls:
+    issuerRef:
+      name: onedata-dev-ca
+      kind: ClusterIssuer
+    trustIssuerCA: true
+  managed:
+    enabled: true
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0020-on4
+    imagePullSecrets:
+      - harbor-dev-pull
+    storageVolume:
+      persistentVolumeClaim:
+        claimName: provider-a-posix
+    topology:
+      databaseMode: Composed
+      databaseNodes: 1
+      workerNodes: 2
+      managerNodes: 1
