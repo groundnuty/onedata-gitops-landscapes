@@ -73,3 +73,22 @@ the maintainer rather than done speculatively by this sweep:
 |---|---|---|
 | `sv-livegrow/v1` | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-patched:dynmem-livegrow-hw1` | A locally patched core image (cumulative DYNAMIC_MEMBERSHIP patchset beams, design it.209), pushed once under this specific tag and never overwritten since. Not a bare `:develop`/`:latest` ref — the tag itself is the pin. No re-pin needed. |
 | `sv-livegrow/v1` | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-livegrow-hw1` | `docker.onedata.org/onezone-dev:develop` pulled once (design it.209) and pushed under this specific, never-reused tag to match the patched provider's `-dev` lineage. Predates the `it.230` `<name>:<tag>-YYYYMMDD` naming convention and is a completed hardware-campaign artifact (M3 elasticity campaign, CLOSED) — left as-is rather than renamed for naming-convention consistency alone. |
+
+## Consolidated patched images (core-mod campaign, it.268)
+
+Not upstream-pull snapshots (the `## Snapshots` table above is for those) --
+these are **locally patched core images**, same category as the "Frozen
+one-off tags" section: a dated vanilla snapshot (`## Snapshots` table above)
+as `FROM` base, with proven core patches layered on top as beam-overlay
+`COPY` instructions (source: canonical `operator-patchset` checkouts at
+`large-dev:/mnt/data/work/phase4/patchset-src/`), tag itself is the pin.
+All flags **default OFF** -- verified byte-identical vanilla boot behavior
+(matching stock-image startup logs line-for-line at the config-less boot
+stage); a landscape opts in per-flag via `/etc/default/<component>` mounts.
+Full build evidence, checkout tips, and verification detail:
+`large-dev:/mnt/data/work/phase4/consolidated-build.md`.
+
+| Date | Image | Base snapshot | Patch composition | Image ID | Digest | Flags | Validated by |
+|---|---|---|---|---|---|---|---|
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0020` | `oneprovider-dev:develop-20260718` (`sha256:55afb9e4…`) | op_worker 0013 (rtransfer_config CA-bundle filter) + 0017 (oz_domain boot-derive); helpers 0020 (NFS conn-pool revalidate, C++); onepanel 0012 (disterl-TLS) + 0014 (F12 hosts-translator) + 0016 (registered-boot idempotence); cluster_manager 0015 (NODE_DOWN_GUARD) + 0019 (CHASH_ACCESSOR_GUARD composition); ctool 0018/0019 (CHASH_ACCESSOR_GUARD, composed into cluster_manager's own vendored ctool copy only) | `sha256:22b86cc5aabd…` | `sha256:f0c4b7c8dada8d6236ed994393e63e12ddc019d7ef12ec05cb4c7256490aa8fa` | RTRANSFER_CA_FILTER, OZ_DOMAIN_BOOT_DERIVE, HELPER_CACHE_REVALIDATE, DISTERL_TLS, F12_HOSTS_FIX, REGISTERED_BOOT_IDEMPOTENCE, NODE_DOWN_GUARD, CHASH_ACCESSOR_GUARD -- all default OFF; disterl node_package env.sh mechanism fix baked unconditionally (no-op unless DISTERL_TLS=true) | it.268 consolidated build: all 3 component builds rc=0 under `flock build.lock`; 10 patched beams + helpers_nif.so load-verified via `erl code:load_file` + NIF on_load through the real `helpers` module; container boot A/B vs stock `oneprovider-dev:develop-20260718` byte-identical at the config-less boot stage (both: "Starting op_panel..." then wait, no crash, 20-45s observed). Full detail: `consolidated-build.md`. |
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260719-p0012.0014.0015.0016.0018.0019` | `onezone-dev:develop-20260718` (`sha256:f2353a44…`) | onepanel 0012 (disterl-TLS) + 0014 (F12 hosts-translator) + 0016 (registered-boot idempotence); cluster_manager 0015 (NODE_DOWN_GUARD) + 0019 (CHASH_ACCESSOR_GUARD composition); ctool 0018/0019 (CHASH_ACCESSOR_GUARD, composed into cluster_manager's own vendored ctool copy only). No op_worker/helpers patches (onezone has no op_worker component); oz_worker itself untouched/stock (out of scope). | `sha256:cb4e47159c48…` | `sha256:fa567c5dfa225904ce1b0497ccdc3c1589a1248fd8c4f7ea86859c639c593123` | DISTERL_TLS, F12_HOSTS_FIX, REGISTERED_BOOT_IDEMPOTENCE, NODE_DOWN_GUARD, CHASH_ACCESSOR_GUARD -- all default OFF; disterl env.sh fix baked unconditionally | it.268 consolidated build: same verification as the oneprovider row above (onepanel/cluster_manager beams shared codebase), container boot A/B vs stock `onezone-dev:develop-20260718` byte-identical at the config-less boot stage. Full detail: `consolidated-build.md`. |
