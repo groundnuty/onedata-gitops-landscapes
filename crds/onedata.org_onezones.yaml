@@ -34,7 +34,14 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Onezone is the Schema for the onezones API
+        description: |-
+          Onezone is the Schema for the onezones API.
+
+          v0.6.5+ compatibility note: see Oneprovider's doc comment
+          (api/v1alpha1/oneprovider_types.go) for the patched-core-image
+          dependency this operator version introduces (deliverables/core-fix-ledger.md).
+          The clock-sync-kick and F12 heals this note describes apply to a
+          managed Onezone's own onepanel exactly as they do to Oneprovider's.
         properties:
           apiVersion:
             description: |-
@@ -113,6 +120,57 @@ spec:
                       Oneprovider: the operator installs and drives the workload itself
                       rather than expecting one to already exist at onepanelEndpoint.
                     type: boolean
+                  ephemeralStorageLimit:
+                    description: |-
+                      ephemeralStorageLimit overrides the vendored chart's
+                      ephemeralStorageLimit value (default "10Gi") for this component's
+                      main container. Sized, by default, well under the smallest
+                      observed node flavor's ~24Gi capacity so that a runaway pod --
+                      e.g. rtransfer_link's historical core-side crash-loop (Finding 11,
+                      since fixed by the commonName fix, see TLSConfig.TrustIssuerCA's
+                      doc comment in api/v1alpha1/common_types.go; this limit remains a
+                      general anti-cascade defense against ANY runaway crash-loop in this
+                      container, not specific to that now-fixed defect), which at the
+                      time dumped ~2.5-3GB/min of uncleaned core files into this exact
+                      container's writable layer -- hits ITS OWN container limit and
+                      gets evicted alone, long before the flood could tip the whole node
+                      into DiskPressure. See EphemeralStorageRequest's doc comment for
+                      the full incident evidence this pair of fields responds to.
+                    type: string
+                  ephemeralStorageRequest:
+                    description: |-
+                      ephemeralStorageRequest overrides the vendored chart's
+                      ephemeralStorageRequest value (default "2Gi") for this component's
+                      main container -- the k8s scheduler's placement signal for its
+                      local/writable-layer disk footprint. If empty, the chart's own
+                      default is used.
+
+                      v0.6.2 hardening (design campaign; research/gitops-v2-deploy.md +
+                      research/rtransfer-cafix.md, phase4/livegrow-hardware.md Finding
+                      11): before this field existed, NO ephemeral-storage request/limit
+                      was set at all on this container, anywhere -- a live incident on
+                      k8s-one measured a single oneprovider container's writable-layer
+                      footprint at ~21GiB (21983968Ki, databaseMode: Bundled, no
+                      dedicated DB PVC) before tripping node-level DiskPressure on a
+                      ~24GiB-capacity node, and the eviction cascade took out EVERY
+                      StatefulSet replica at once, wiping the un-persisted Bundled
+                      Couchbase state and forcing a virgin re-bootstrap under a new
+                      provider identity. A request gives the scheduler real placement
+                      visibility (so it does not co-locate multiple such pods on one
+                      small node); the accompanying ephemeralStorageLimit
+                      (EphemeralStorageLimit below) bounds a single runaway pod's blast
+                      radius instead of letting it take the whole node down.
+
+                      The chart-level default (2Gi request / 10Gi limit) is deliberately
+                      modest -- NOT sized to the ~21-22Gi failure-case working set this
+                      incident's own evidence doc recommends for genuine anti-cascade
+                      scheduling protection -- so a single-node minikube/dev cluster
+                      (typically far below 21Gi of schedulable ephemeral-storage per
+                      node) can still schedule this pod at all. A production/hardware
+                      landscape sharing a node pool with other landscapes SHOULD set
+                      this field explicitly, upward toward the measured working set
+                      (e.g. "20Gi"), to get real scheduler anti-co-location protection.
+                    type: string
                   image:
                     description: |-
                       image overrides the oneprovider chart's default container image
@@ -2244,15 +2302,16 @@ spec:
                         - schedule
                         type: object
                       databaseMode:
-                        default: Bundled
+                        default: Composed
                         description: |-
                           databaseMode selects how this managed Oneprovider's Couchbase Server
-                          is provisioned: Bundled (default) co-locates it on databaseNodes
-                          ordinals of this same StatefulSet, managed entirely by onepanel --
-                          the behavior every managed Oneprovider had before this field
-                          existed. Composed instead composes a separate, operator-owned
-                          Couchbase StatefulSet (a single replica in v1) outside onepanel's
-                          management, wiring op_worker to it via the vendored chart's own
+                          is provisioned: Bundled co-locates it on databaseNodes ordinals of
+                          this same StatefulSet, managed entirely by onepanel -- the behavior
+                          every managed Oneprovider had before this field existed. Composed
+                          (the DEFAULT since design it.251/the per-role-StatefulSet campaign
+                          -- see below) instead composes a separate, operator-owned Couchbase
+                          StatefulSet (a single replica in v1) outside onepanel's management,
+                          wiring op_worker to it via the vendored chart's own
                           workerOverlayConfig extensibility point -- see
                           research/couchbase-operator-design-lessons.md and design
                           it.73/it.74/it.75 for the onepanel-seam this threads through
@@ -2260,6 +2319,28 @@ spec:
                           onepanel's own per-service host-targeting REST API structurally
                           requires every "database" host to run onepanel itself -- a bare
                           Couchbase container can never appear there).
+
+                          DEFAULT FLIP (maintainer directive, design it.251/rolesplit
+                          campaign): this default changed from Bundled to Composed. Only
+                          affects brand-new CRs that omit this field entirely -- kubebuilder
+                          defaulting fires at admission time when the field is absent from
+                          the incoming object; every already-persisted CR (whether it set
+                          Bundled explicitly, or had Bundled materialized into storage by the
+                          OLD default at its own create time) is unaffected, verified via
+                          this field's git history carrying +kubebuilder:default=Bundled
+                          since its very first introduction (no window existed where the
+                          field was optional-with-no-default that could have left any stored
+                          CR's databaseMode truly absent). Bundled is now the frozen/legacy
+                          mode: real per-role StatefulSet placement (managerNodes above,
+                          worker-role and cluster_manager-role StatefulSets with their own
+                          Services and readiness) is built ONLY for Composed+topology; a
+                          Bundled Oneprovider with spec.managed.topology set keeps the OLD
+                          ordinal-based pseudo-role-split within one combined StatefulSet
+                          unchanged, and now additionally carries a loud
+                          BundledTopologyDeprecated Condition + Event (not a silent
+                          divergence between the two paths) -- see
+                          setBundledTopologyDeprecatedCondition in
+                          internal/controller/oneprovider_managed.go.
                         enum:
                         - Bundled
                         - Composed
@@ -2307,6 +2388,37 @@ spec:
                         - Cold
                         - Live
                         type: string
+                      managerNodes:
+                        default: 1
+                        description: |-
+                          managerNodes is the number of StatefulSet pods dedicated to running
+                          cluster_manager only, in its own per-role StatefulSet (design
+                          it.90/91/92/98/127, realized -- see internal/deploy's per-role
+                          rendering; the it.90 decision log's own case-law survey verdict for
+                          this role: "cattle with a stable nametag," STS not Deployment,
+                          because Erlang long-names require a stable per-pod FQDN even though
+                          the role carries no durable per-pod state of its own).
+
+                          v1 is fixed at exactly 1 (both Minimum and Maximum below, not just
+                          documented): Onedata core supports exactly ONE active
+                          cluster_manager per cluster today -- there is no quorum/HA
+                          membership model for this role. Applies only when databaseMode is
+                          Composed and topology is set (the per-role-StatefulSet path,
+                          design it.90's realization); ignored when databaseMode is Bundled,
+                          where cluster_manager continues to co-locate on the first worker
+                          ordinal of the single combined StatefulSet exactly as before this
+                          field existed (Bundled is frozen/legacy -- see DatabaseMode's doc
+                          comment).
+
+                          REVISIT TRIGGER (named, not silently absent): the day Onedata core
+                          grows a cluster_manager quorum/HA membership model, this field's
+                          Maximum=1 constraint is the single place to relax -- see design
+                          it.90's own named revisit trigger for the analogous worker-role
+                          question.
+                        format: int32
+                        maximum: 1
+                        minimum: 1
+                        type: integer
                       workerNodes:
                         description: |-
                           workerNodes is the number of StatefulSet pods running op_worker
@@ -2412,6 +2524,26 @@ spec:
                   endpoint. If omitted, the operator falls back to a self-signed
                   certificate.
                 properties:
+                  disterlTLS:
+                    description: |-
+                      disterlTLS provisions a second, per-cluster MUTUAL certificate (the
+                      same issuerRef -- no separate CA needed) and activates
+                      inter-node Erlang distribution TLS (disterl: epmd 4369, dist ports
+                      9100-9139) via the core DISTERL_TLS-gated patch. Finding 4
+                      (research/finding-ha-write-loss-window.md) is that this mesh runs
+                      in plaintext with a public well-known cookie by default; the
+                      it.157/it.202 disterl NetworkPolicy (default OFF) is a port-fence
+                      compensating for that weak default, not a fix for it. Setting
+                      disterlTLS:true is the actual fix (encryption + mutual auth),
+                      which is what makes that NetworkPolicy a genuinely optional,
+                      defense-in-depth layer rather than the only mitigation (design
+                      it.168/194/202/209, research/cert-manager-integration.md §2 "L3").
+
+                      Requires issuerRef to be set (this reuses it -- no separate issuer
+                      field). false (the default) leaves onepanel/cluster_manager/
+                      op_worker's vm.args byte-identical to today (plaintext disterl,
+                      unchanged).
+                    type: boolean
                   issuerRef:
                     description: |-
                       issuerRef references a cert-manager Issuer or ClusterIssuer used to
@@ -2472,6 +2604,30 @@ spec:
                       peer trusts them, so provider<->zone GraphSync, inter-provider
                       rtransfer, and oneclient all fail their TLS handshake even though
                       the certificate itself issued cleanly.
+
+                      Requires operator >=v0.6.4 and a leaf certificate carrying a
+                      non-empty commonName (Finding 11; research/f11-mechanism-matrix.md,
+                      research/cn-fix.md): rtransfer_link's embedded Fizz/Wangle TLS stack
+                      throws std::runtime_error("empty identity") when the identity/leaf
+                      certificate's X.509 Subject is empty -- a shape cert-manager
+                      produces by default for a dnsNames-only (no commonName) Certificate
+                      spec. This was originally misdiagnosed as trustIssuerCA/cacerts_dir
+                      itself being incompatible (v0.6.2's now-removed
+                      TrustIssuerCAIncompatible guard); a live, controlled re-isolation
+                      (research/cn-fix.md Arms 0-2) proved the cacerts_dir mount --
+                      including the exact orphan-ca.crt shape this field produces -- is
+                      NOT independently crash-triggering once the leaf certificate has a
+                      real Subject. Since v0.6.4 this operator always sets spec.commonName
+                      on every Certificate it emits (setCertificateSpec,
+                      internal/controller/certificate.go), so this field is fully
+                      supported and produces no known incompatibility: Arm 2 confirmed
+                      trustIssuerCA:true + issuerRef clean end-to-end (~12 sustained
+                      minutes, 0 crashes, genuine Ready status) against a live
+                      cert-manager ClusterIssuer.
+
+                      Onezone was never affected -- oz_worker has no rtransfer subsystem
+                      at all (verified: zero references to rtransfer anywhere in
+                      oz-worker-int's source tree, vs. 17 in op-worker-int's).
                     type: boolean
                 type: object
             required:
