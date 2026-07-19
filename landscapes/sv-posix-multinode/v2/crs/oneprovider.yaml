@@ -70,4 +70,4 @@ spec:
         claimName: sv-posix-multinode-shared-posix
     topology:
       databaseNodes: 1
-      workerNodes: 2
+      workerNodes: 3
