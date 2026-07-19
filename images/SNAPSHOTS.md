@@ -118,3 +118,38 @@ Re-pinned into `sv-posix-multinode/v2` (`crs/oneprovider.yaml`,
 `crs/onezone.yaml`) as part of the v0.6.5 release train -- see those
 files' own `IMAGE`/`RE-PINNED` header notes.
 
+
+## P5 close-out consolidated images (it.295-closeout, 2026-07-19/20)
+
+Supersede the it.268 consolidated build -- adds 0022 (`DURABLE_CM_BARRIER`, cluster_worker
+`node_manager.erl`, compiled as part of BOTH op_worker's AND oz_worker's own release this
+session), 0023 (`REJOIN_NODES`, onepanel `service_onepanel.erl`), 0019c (`safe_report_node_recovery`,
+cluster_manager -- unconditional correctness fix, no flag). Same it.230 dated vanilla snapshot
+bases as it.268 (no base-image change). oz_worker built for the FIRST time this campaign (was
+never touched before -- see `p5-closeout.md` sec 2); its own release now also carries the
+0022-patched `node_manager.beam`.
+
+| Date | Image | Base snapshot | Patch composition | Image ID | Digest | Validated by |
+|---|---|---|---|---|---|---|
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023` | `oneprovider-dev:develop-20260718` (`sha256:55afb9e4…`) | op_worker 0013+0017 (unchanged); cluster_worker **0022 NEW** (compiled as op_worker's own release dep); helpers 0020 (unchanged); onepanel 0012+0014+0016+**0023 NEW**; cluster_manager 0015+0019+**0019c NEW**; ctool 0018/0019 (cluster_manager's own vendored copy only) | `sha256:0ce1a8e2da17…` | `sha256:4e97a9de82530d41031803af81e79a0834426050d5ae6975db34678b8d0757b1` | it.295-closeout: real integrated release build via wrapper-scripts under `flock build.lock` (op_worker's own top-level rebar pins bumped to current ctool/cluster_manager/cluster_worker tips -- fixes the it.294 stale-pin gap); op_worker leg compiled `cluster_manager`+`cluster_worker` in-graph with ZERO errors (settles the "nominal vs real" QUERY_STATUS-macro risk); all 11 changed beams `code:load_file` OK; container boot A/B vs stock `develop-20260718` byte-identical. Full detail: `p5-closeout.md` secs 1-6. |
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260719-p0012.0014.0015.0016.0018.0019.0019c.0022.0023` | `onezone-dev:develop-20260718` (`sha256:f2353a44…`) | cluster_worker **0022 NEW** (compiled as oz_worker's own release dep -- oz_worker's FIRST build this campaign, previously untouched); onepanel 0012+0014+0016+**0023 NEW**; cluster_manager 0015+0019+**0019c NEW**; ctool 0018/0019 (cluster_manager's own vendored copy). oz_worker itself carries zero own-source patches. | `sha256:df176217e2b4…` | `sha256:8884f21dea27d823bacc890f82829ec35dd20165361dc072db9e500c4d73730a` | it.295-closeout: oz-worker-int checkout established from scratch on an `operator-patchset` branch (never existed before), pins bumped to current tips, `bamboos` submodule re-pointed+initialized (same it.121-class gotcha as cluster_manager/cluster_worker); real build DONE rc=0, zero errors; `node_manager.beam` carries `durable_cm_barrier_enabled`; all beams load OK; boot A/B byte-identical vs stock. Full detail: `p5-closeout.md` secs 2, 4, 6. |
+
+## Flags-ON overlay images (P5 close-out, the `-on7` set)
+
+Overlay `FROM` the P5 close-out consolidated snapshots above, baking **7** flags ON via
+`/etc/default/<component>` (same durable-mount mechanism) -- the -on4 four PLUS `REJOIN_NODES`,
+`DURABLE_CM_BARRIER`, and `CHASH_ACCESSOR_GUARD` (the last now legal: 0019c closes the
+recovery-path interaction that made it unsafe to enable in `-on4`/`-bundleab-on`). OFF (unchanged):
+`DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE`.
+
+| Date | Image | Base | Flags ON | Flags OFF | Image ID | Digest | Validated by |
+|---|---|---|---|---|---|---|---|
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023-on7` | the P5 close-out oneprovider row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `OZ_DOMAIN_BOOT_DERIVE`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD` | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE` | `sha256:3b024c644064…` | `sha256:79d77863c5bf3058642c5ffa8238c0bab641b208ce725abbad2e59655bf36cc2` | `nodetool rpcterms os getenv` against the live op_panel beam (FQDN-hostname `docker run`): `REGISTERED_BOOT_IDEMPOTENCE="true"`, `F12_HOSTS_FIX="true"`, `REJOIN_NODES="true"`, all other 7 flags `false` -- exact set confirmed. `/etc/default/{op_worker,cluster_manager}` file contents verified for `OZ_DOMAIN_BOOT_DERIVE`/`DURABLE_CM_BARRIER`/`NODE_DOWN_GUARD`/`CHASH_ACCESSOR_GUARD` (beams don't start standalone). A real authoring bug (missing `export` in the flag files, silently non-propagating) was found and fixed during this verification -- see `p5-closeout.md` sec 8. |
+| 2026-07-19 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260719-p0012.0014.0015.0016.0018.0019.0019c.0022.0023-on7` | the P5 close-out onezone row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD` (`OZ_DOMAIN_BOOT_DERIVE` not applicable) | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE` | `sha256:c6d5df78f0e7…` | `sha256:3b892c361f3144252bce7bb62c9934bc8a497b82186eec6cbadd4ef5bcd6f01f` | Same verification method, oz_panel beam: `REGISTERED_BOOT_IDEMPOTENCE="true"`, `F12_HOSTS_FIX="true"`, `REJOIN_NODES="true"`, all others `false`. `/etc/default/{oz_worker,cluster_manager}` verified. |
+
+**Re-pinned into `sv-federation/v1`** (`crs/oneprovider-b.yaml` only -- provider-a and onezone
+stay on their existing images per isolation requirement) as the P5 close-out gate. Operator
+image `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5` (master `e11f14b`,
+digest `sha256:3be1dcfbb0673e016940ad7248e58f680c57af1be0bc4957d4aca58857f6d064`, also pushed to
+`docker.io/groundnuty/onedata-operator:v0.6.5-p5`) re-pinned in the same landscape's operator
+deployment.
