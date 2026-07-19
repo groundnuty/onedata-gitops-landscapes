@@ -20,6 +20,23 @@
 # storageVolume/topology are UNCHANGED from v1 -- same feature, same
 # shape, just a different namespace and image source.
 #
+# RE-MINED (v0.6.5 release train): trustIssuerCA: true RESTORED.
+# Supersedes the it.238 "DE-MINED" note below, which is kept for the
+# historical mechanism trail -- Finding 11's root cause (an empty X.509
+# Subject on the cert-manager-issued leaf, NOT ssl_ca_path/
+# make_ca_bundle content) is now fixed operator-side by commonName
+# (shipped v0.6.4) and confirmed live: cn-fix.md Arm 2, 12 clean
+# minutes, zero rtransfer_link crashes, trustIssuerCA:true + issuerRef
+# fully working end-to-end with a real orphan CA cert in ssl_ca_path
+# the whole time. trustIssuerCA is additionally now REQUIRED, not just
+# safe: deploy-test-v064.md's "defect A" found that without it,
+# onepanel's own check_oz_availability/add_provider TLS validation
+# against a dev-CA-signed Onezone can NEVER complete (onepanel's
+# cacerts_dir never receives the CA otherwise) -- the de-mined shape
+# below silently broke registration against this exact landscape's own
+# onezone.yaml, never caught because v2 had not been redeployed since
+# the de-mine commit. Original de-mine rationale, superseded:
+#
 # DE-MINED (it.238, Finding 11): trustIssuerCA: true removed. Finding
 # 11 (evidence research/rtransfer-cafix.md, design log it.221/it.225)
 # root-caused trustIssuerCA on a MANAGED Oneprovider to a Fizz-TLS
@@ -43,6 +60,17 @@
 # trustIssuerCA for registration to complete at all, and eats the
 # crash-loop as a known, operationally-mitigated cost until patch 0013
 # lands in a deployed image).
+#
+# IMAGE (v0.6.5 release train): re-pinned from the public dockerhub-proxy
+# stock 21.02.7 image to this project's own flags-ON patched snapshot
+# (deliverables/core-fix-ledger.md, images/SNAPSHOTS.md "-on4" row) --
+# REGISTERED_BOOT_IDEMPOTENCE, OZ_DOMAIN_BOOT_DERIVE, F12_HOSTS_FIX,
+# NODE_DOWN_GUARD all ON; CHASH_ACCESSOR_GUARD/DISTERL_TLS/
+# RTRANSFER_CA_FILTER/HELPER_CACHE_REVALIDATE stay OFF (see the -on4
+# Dockerfile's own header for the per-flag rationale). Requires the
+# harbor-dev-pull imagePullSecret (private Harbor `dev` project), added
+# below -- see operator/deployment.yaml's IMAGE PIN note for the
+# `make harbor-pull-secret` prerequisite.
 apiVersion: onedata.org/v1alpha1
 kind: Oneprovider
 metadata:
@@ -62,9 +90,12 @@ spec:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
+    trustIssuerCA: true
   managed:
     enabled: true
-    image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/oneprovider:21.02.7
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0020-on4
+    imagePullSecrets:
+      - harbor-dev-pull
     storageVolume:
       persistentVolumeClaim:
         claimName: sv-posix-multinode-shared-posix

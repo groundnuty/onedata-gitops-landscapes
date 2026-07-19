@@ -11,16 +11,26 @@
 #    make provider<->zone GraphSync/rtransfer/onepanel<->zone
 #    registration actually TRUST the issued leaf, not just serve it --
 #    see platform/onedata-dev-ca/README.md and
-#    research/dev-ca-trust-design.md for the design -- BUT it.238
-#    DE-MINES it from this file (Finding 11, see oneprovider.yaml's
-#    header for the full why: trustIssuerCA crashes op_worker's
-#    rtransfer_link on a managed Oneprovider, core-side bug, no
-#    operator-side fix possible until patch 0013 lands in a deployed
-#    image). issuerRef-only stays: it still issues Onezone's own web
-#    cert from the shared CA.
+#    research/dev-ca-trust-design.md for the design.
+#
+#    RE-MINED (v0.6.5 release train): trustIssuerCA: true RESTORED,
+#    superseding the it.238 DE-MINE below -- see oneprovider.yaml's
+#    header for the full mechanism (commonName fix, shipped v0.6.4,
+#    confirmed live cn-fix.md Arm 2) and why trustIssuerCA is now
+#    REQUIRED, not just safe (deploy-test-v064.md defect A: onepanel's
+#    own registration-time TLS validation against Onezone needs the CA
+#    in cacerts_dir, which only trustIssuerCA provides). Original
+#    rationale, superseded: it.238 DE-MINES it from this file (Finding
+#    11, see oneprovider.yaml's header for the full why: trustIssuerCA
+#    crashes op_worker's rtransfer_link on a managed Oneprovider,
+#    core-side bug, no operator-side fix possible until patch 0013
+#    lands in a deployed image). issuerRef-only stays either way: it
+#    still issues Onezone's own web cert from the shared CA.
 #
 # 2. spec.managed.image: the PUBLIC onedata/onezone:21.02.7 Docker Hub
-#    image, via Harbor's `dockerhub-proxy` proxy-cache project
+#    image (SUPERSEDED -- see the RE-PINNED note appended below this
+#    numbered list, v0.6.5 release train), via Harbor's `dockerhub-proxy`
+#    proxy-cache project
 #    (design it.203's "Harbor-for-everything" directive) instead of
 #    v1's private docker.onedata.org/onezone-dev:develop. Two
 #    consequences: (a) this is a proxy-CACHE for an already-public
@@ -34,6 +44,13 @@
 #    entirely versus v1 (which needed the external docker-onedata-org
 #    secret for the private docker.onedata.org registry). v2 has no
 #    such external prerequisite for THIS image.
+#
+# RE-PINNED (v0.6.5 release train): item 2 above is superseded --
+# spec.managed.image now points at this project's own flags-ON patched
+# snapshot instead of the stock public 21.02.7 image (see
+# oneprovider.yaml's IMAGE note for the full flag-set rationale), which
+# needs the harbor-dev-pull imagePullSecret (private Harbor `dev`
+# project) the stock/public image did not.
 #
 # Domain still left unset (same known gap as v1 and every demo/
 # landscape in the operator repo -- no real DNS/ingress here either).
@@ -54,6 +71,9 @@ spec:
     issuerRef:
       name: onedata-dev-ca
       kind: ClusterIssuer
+    trustIssuerCA: true
   managed:
     enabled: true
-    image: harbor.k8s-one-onedata.dedyn.io:30003/dockerhub-proxy/onedata/onezone:21.02.7
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260719-p0012.0014.0015.0016.0018.0019-on4
+    imagePullSecrets:
+      - harbor-dev-pull

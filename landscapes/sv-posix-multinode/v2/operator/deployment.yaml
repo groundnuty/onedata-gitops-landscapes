@@ -6,17 +6,19 @@
 # landscape's.
 #
 # ============================================================
-# IMAGE PIN (it.203 Harbor-for-everything; bumped v0.6.1 -> v0.6.3 by
-# the it.230/it.238 upstream-image-snapshot sweep):
+# IMAGE PIN (it.203 Harbor-for-everything; bumped v0.6.4 -> v0.6.5 by
+# the core-first delete+flip release train, deliverables/core-fix-ledger.md):
 # ============================================================
-# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4 --
-# Harbor's private `dev` project. v0.6.1 (the original scaffold's
-# forward reference) shipped and was live-deployed; this bump carries
-# forward everything v0.6.1 had (it.200 trustIssuerCA mount, it.201
-# disterl-NetworkPolicy Couchbase-ports fix, it.202
-# NetworkPolicy-default-OFF, onepanel bootstrap-task retry heal) plus
-# v0.6.2 (GS-check dual-catch) and v0.6.3 (dual-binding truthful-status
-# undef-fallback, design log it.235/it.237) on top.
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5 --
+# Harbor's private `dev` project. Carries forward everything v0.6.4 had
+# (commonName fix, F12 mitigation) plus v0.6.5's delete pass: the
+# clock-sync-kick heal, the F12 stale-host health bypass, and the
+# workerOverlayConfig oz_domain emission are all DELETED (their core
+# fixes are proven and now flip ON in this landscape's own component
+# images -- crs/oneprovider.yaml / crs/onezone.yaml's IMAGE notes).
+# v0.6.5+ REQUIRES those patched component images; do not pair a
+# v0.6.5+ operator with a stock/vanilla core image (see the operator
+# repo's own README "v0.6.5+ patched-image dependency" section).
 #
 # This is a DELIBERATE it.203 policy choice, not the it.183 exception:
 # Harbor is now the DEFAULT image path for landscapes going forward
@@ -72,7 +74,7 @@ spec:
       containers:
         - name: manager
           # See the IMAGE PIN note at the top of this file.
-          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.4
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5
           command: ["/manager"]
           args:
             - --leader-elect
