@@ -193,3 +193,56 @@ polish batch, Findings A/C/D) are what P5 FINALE re-pins into `sv-federation/v1`
 (`crs/oneprovider-b.yaml` + `operator/deployment.yaml` only -- provider-a and onezone stay
 untouched per the isolation requirement) for the hands-off Proof 2/3 re-run. See
 `/mnt/data/work/phase4/p5-final.md` for the full build/proof evidence trail.
+
+## P5 -on9 FINALE consolidated images (it.33x, 2026-07-20)
+
+Supersedes the P5 FINALE (-on8) consolidated build -- adds patch 0029 (`CONFIG_SELF_HEAL`,
+onepanel, canonical `528f1c69`, on top of `94fa33fc` 0024) on top of the identical 0012-0024
+lineage. Also picks up the current helpers tip (`b939745332`, patch 0028 per-storage pool
+isolation + 2 follow-ups) -- flag default-OFF, `helpers_nif.so` confirmed byte-identical (sha256
+unchanged) to the p5-final build since 0028's gate is off. Same it.230 dated vanilla base
+snapshots (no base-image change). All 4 legs (op_worker, oz_worker, cluster_manager, onepanel)
+rebuilt fresh under the same `flock build.lock` mechanism for epoch consistency; only onepanel's
+beams actually changed content.
+
+**Build-script gap caught and fixed this session:** the extraction/Dockerfile-COPY list inherited
+from the p5-final build script did NOT include `onepanel_env.beam` -- the file patch 0029's
+`CONFIG_SELF_HEAL` flag macro lives in. Without this fix, `service_cluster_worker`/
+`service_cluster_manager`'s new calls to `onepanel_env:config_self_heal_enabled/0` would have
+hit the vanilla image's own `onepanel_env.beam` (confirmed via direct `strings` check: 0 matches
+for `config_self_heal_enabled` in the base image's copy) -- an undefined-function crash on every
+single `start/1` call, since the flag is checked FIRST. Fixed by adding `onepanel_env.beam` to
+both the extraction script and both consolidated Dockerfiles' COPY lists before building.
+
+All 27 changed/carried beams (15 oneprovider + 12 onezone) beam-load-verified
+(`code:load_file/1` inside the built image, zero failures); both images boot-A/B smoke-tested
+clean against the same base snapshot. Pushed images round-trip-verified: local images removed,
+freshly `docker pull`-ed from Harbor, both `maybe_self_heal_identity` (0024) and
+`config_self_heal_enabled`/`maybe_self_heal_connectivity` (0029) markers confirmed present in the
+pulled artifacts.
+
+| Date | Image | Base | Patch composition | Digest | Validated by |
+|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260720-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024.0028.0029` | `oneprovider-dev:develop-20260718` (it.230 dated vanilla) | 0012-0024 (unchanged from P5 FINALE -on8) + 0028 (helpers, flag OFF) + **0029 NEW** | `sha256:e8b46012378eae645d169d27bf04336e1c2c0fd911170c1a73820a20a38849d2` | Beam-load OK (15/15); boot A/B clean; `onepanel_env.beam`/`service_cluster_manager.beam`/`service_cluster_worker.beam` markers present; round-tripped through Harbor (rmi + fresh pull) with markers intact. |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260720-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024.0029` | `onezone-dev:develop-20260718` (it.230 dated vanilla) | 0012-0024 (unchanged) + **0029 NEW** | `sha256:e72c5c3cb594d9e062bb7c24a5e6f27b7881f916a40dea231e65d889d56d3ff6` | Same verification method; round-tripped through Harbor. |
+
+## Flags-ON overlay images (P5 -on9 FINALE, the `-on9` set)
+
+Overlay `FROM` the P5 -on9 FINALE consolidated snapshots above, baking **9** flags ON -- the -on8
+eight PLUS `CONFIG_SELF_HEAL` (0029, the fix for Finding E / the empty `cm_nodes`/`db_nodes`
+dead-end that blocked the p5-final session's Proof 1-bis/Proof 2). `CONFIG_SELF_HEAL` delivered
+via `/etc/default/op_panel` / `/etc/default/oz_panel` ONLY (not `op_worker`/`cluster_manager`) --
+per `patch-0029.md` sec 6 note 3, same delivery-file convention as `VM_ARGS_SELF_HEAL`. OFF
+(unchanged): `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE`,
+`HELPER_POOL_PER_STORAGE` (0028).
+
+| Date | Image | Base | Flags ON | Flags OFF | Digest | Validated by |
+|---|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260720-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024.0028.0029-on9` | the P5 -on9 FINALE oneprovider row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `OZ_DOMAIN_BOOT_DERIVE`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD`, `VM_ARGS_SELF_HEAL`, `CONFIG_SELF_HEAL` | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE`, `HELPER_POOL_PER_STORAGE` | `sha256:6ba1981413513caadd7b5709799a3d6c517f0c1f3602f3f7eab550f20d46b292` | `nodetool rpcterms os getenv` against the live op_panel beam (FQDN-hostname `docker run`, node name `onepanel@<fqdn>`, cookie `cluster_node`, target-node-as-`-name` invocation fix rediscovered this session): all 5 op_panel flags (`REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `REJOIN_NODES`, `VM_ARGS_SELF_HEAL`, `CONFIG_SELF_HEAL`) `"true"`, all other 8 flags `false` -- exact set confirmed. `/etc/default/{op_worker,cluster_manager}` file contents verified byte-unchanged from -on8. |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260720-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024.0029-on9` | the P5 -on9 FINALE onezone row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD`, `VM_ARGS_SELF_HEAL`, `CONFIG_SELF_HEAL` (`OZ_DOMAIN_BOOT_DERIVE` not applicable) | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE` | `sha256:a9a12b9918b76e2994ba6e40cbc767b1eb8a7e42dec0719a7aaeb9fa9b31b675` | Same verification method, oz_panel beam: all 5 flags `"true"`, all others `false`. `/etc/default/{oz_worker,cluster_manager}` verified unchanged from -on8. |
+
+**Handoff:** these two `-on9` images (operator stays `v0.6.5-p5b`, unchanged, already carries the
+Findings A/C/D heal batch) are what the -on9 finale re-pins into `sv-federation/v1`
+(`crs/oneprovider-b.yaml` only -- provider-a and onezone stay untouched per the isolation
+requirement) for the hands-off Proof 1-bis re-run. See `/mnt/data/work/phase4/p5-on9-finale.md`
+for the full build/proof evidence trail.
