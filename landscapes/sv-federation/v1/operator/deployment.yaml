@@ -4,17 +4,22 @@
 # model -- never sees, and cannot reconcile, any other landscape's own
 # namespace-scoped operator/CRs.
 #
-# IMAGE PIN (P5 CLOSE-OUT FLIP, it.295-closeout, 2026-07-19):
-# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5b
-# (digest sha256:3be1dcfbb0673e016940ad7248e58f680c57af1be0bc4957d4aca58857f6d064,
-# master e11f14b -- the P5 operator heal batch: heal-budget incident-
-# debounce, per-role ozConnectivity exec-target, secondary-worker heal
-# w/ positive k8s-Ready detection + the 0023 rejoin seam, joinGate
-# built default-off). Superseded from v0.6.5 (7317e98) specifically so
-# provider-b's secondary-worker heal can positively detect + recreate
-# its stuck workers and hand off to REJOIN_NODES on the (also newly
-# re-pinned, see crs/oneprovider-b.yaml) -on7 image. v0.6.5+ REQUIRES
-# patched component images (see crs/oneprovider-a.yaml /
+# IMAGE PIN (design it.335/Finding G fix, 2026-07-20):
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5c
+# (digest sha256:ecd4d958386fa2b22794d8556b1ae4d9978bf48d2d8e6158b3626e2ffdf9ad0d,
+# master e430928 -- extends the operator's own ConfigMap-backed
+# overlay.config rendering to ALSO carry cm_nodes (alongside the
+# already-durable db_nodes), closing the k8s deployment self-heal
+# blocker large-dev:/mnt/data/work/phase4/p5-on9-finale.md's Finding G
+# root-caused: onepanel's own service mnesia ctx table (0029/
+# CONFIG_SELF_HEAL's durable source) is never populated by this
+# operator's provisioning flow, on any host. Superseded from v0.6.5-p5b
+# (e11f14b, the P5 operator heal batch: heal-budget incident-debounce,
+# per-role ozConnectivity exec-target, secondary-worker heal w/ positive
+# k8s-Ready detection + the 0023 rejoin seam, joinGate built default-off)
+# specifically so a recreated secondary worker gets durable cm_nodes
+# connectivity straight from the ConfigMap, no self-heal required.
+# v0.6.5+ REQUIRES patched component images (see crs/oneprovider-a.yaml /
 # crs/oneprovider-b.yaml / crs/onezone.yaml's IMAGE notes) -- do not
 # pair with stock/vanilla core images.
 #
@@ -54,7 +59,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5b
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5c
           command: ["/manager"]
           args:
             - --leader-elect
