@@ -246,3 +246,45 @@ Findings A/C/D heal batch) are what the -on9 finale re-pins into `sv-federation/
 (`crs/oneprovider-b.yaml` only -- provider-a and onezone stay untouched per the isolation
 requirement) for the hands-off Proof 1-bis re-run. See `/mnt/data/work/phase4/p5-on9-finale.md`
 for the full build/proof evidence trail.
+
+## RING -on13 FINALE consolidated images (Phase II FINALE, it.36x, 2026-07-20)
+
+Supersedes the P5 -on9 FINALE consolidated build -- adds Bundle A's four ring/HA patches on top
+of the identical -on9 nine: ctool 0025 `D3_FAILOVER_LIST` (`837624c8`) + 0026
+`RING_MASK_SERIALIZE` (`ae10fd1d`), cluster_worker 0027 `HA_DERIVE_PER_CALL` +
+`HA_BACKUP_CLAIM_ACCOUNTING` (`e8c4087da`). Same it.230 dated vanilla base snapshots (no
+base-image change). onepanel unchanged (`528f1c69`, byte-identical beams to -on9, re-verified by
+sha256).
+
+**Build-mechanism gap caught and fixed this session:** `op_worker`/`oz_worker`/`cluster_manager`'s
+own `rebar.config`/`rebar.lock` pins for ctool/cluster_worker/helpers were STALE (pre-0025/26/27/28)
+despite the canonical patchset-src tips already carrying those patches -- a release build from the
+canonical checkouts as-is would have silently compiled against the OLD ring code. Resolved via
+three PRIVATE re-pin clones (`op_worker-on13`, `oz_worker-on13`, `cluster_manager-on13`, one
+rebar.config+rebar.lock-only commit each, canonical `patchset-src/{op_worker,cluster_manager}` and
+`oz-worker-int` confirmed untouched throughout) -- NOT a canonical commit. Full detail:
+`/mnt/data/work/phase4/ring-on13-liveproofs.md` sec 1.
+
+| Date | Image | Base | Patches ADDED vs -on9 | Digest | Validated by |
+|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260718-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024.0025.0026.0027.0028.0029-on13` | `oneprovider-dev:develop-20260718` (it.230 dated vanilla) | 0012-0024/0028/0029 (unchanged) + **0025 D3_FAILOVER_LIST, 0026 RING_MASK_SERIALIZE, 0027 HA_DERIVE_PER_CALL+HA_BACKUP_CLAIM_ACCOUNTING NEW** | `sha256:68141d93cae84999cdbead58f7e4aa61385b33dd50ff7936a4b91d45249b8a29` | beam_lib LitT-chunk (zlib-decompressed) literal-table check: D3_FAILOVER_LIST/RING_MASK_SERIALIZE present in all 3 consistent_hashing.beam copies (op_worker/oz_worker/cluster_manager own vendored ctool); HA_DERIVE_PER_CALL in ha_datastore.beam; HA_BACKUP_CLAIM_ACCOUNTING in ha_datastore_slave.beam. All 15 oneprovider beams + cluster_manager's 2 beam_lib:info load-clean. Round-tripped through Harbor (rmi + force-pull + digest re-check). |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260718-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024.0025.0026.0027.0029-on13` | `onezone-dev:develop-20260718` (it.230 dated vanilla) | 0012-0024/0029 (unchanged) + **0025/0026/0027 NEW** (same as oneprovider row) | `sha256:b0b4f06735d1a8f1dfaf7d81585f82693dc926c045fbbc473ba406276153bb10` | Same method. 111 oz_panel beams + 6 key ring/HA beams load-clean. Round-tripped through Harbor. |
+
+## Flags-ON overlay images (RING -on13 FINALE, the `-on13` set, thirteen ON)
+
+Overlay `FROM` the RING -on13 FINALE consolidated snapshots above, baking **13** flags ON -- the
+-on9 nine PLUS `D3_FAILOVER_LIST`, `RING_MASK_SERIALIZE` (delivered to op_worker.default,
+oz_worker.default, AND cluster_manager.default -- all three ring participants), PLUS
+`HA_DERIVE_PER_CALL`, `HA_BACKUP_CLAIM_ACCOUNTING` (op_worker.default/oz_worker.default only --
+cluster_worker's ha_datastore machinery, not exercised by cluster_manager). OFF (unchanged):
+`DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE`, `HELPER_POOL_PER_STORAGE`.
+
+| Date | Image | Base | Flags ON (13) | Digest | Validated by |
+|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260718-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024.0025.0026.0027.0028.0029-on13-flagson` | the RING -on13 FINALE oneprovider row above | REGISTERED_BOOT_IDEMPOTENCE, OZ_DOMAIN_BOOT_DERIVE, F12_HOSTS_FIX, NODE_DOWN_GUARD, REJOIN_NODES, DURABLE_CM_BARRIER, CHASH_ACCESSOR_GUARD, VM_ARGS_SELF_HEAL, CONFIG_SELF_HEAL, **D3_FAILOVER_LIST, RING_MASK_SERIALIZE, HA_DERIVE_PER_CALL, HA_BACKUP_CLAIM_ACCOUNTING** | `sha256:85584b65b723201156f63db6676e4f1e1010410a4b78240f9460f9e3b32a496a` | `/etc/default/{op_worker,cluster_manager,op_panel}` file content verified at build time (this doc); live nodetool/rpcterms re-verification performed in the `ring-proof` minikube live-proof session, see `ring-on13-liveproofs.md`. |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260718-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024.0025.0026.0027.0029-on13-flagson` | the RING -on13 FINALE onezone row above | REGISTERED_BOOT_IDEMPOTENCE, F12_HOSTS_FIX, NODE_DOWN_GUARD, REJOIN_NODES, DURABLE_CM_BARRIER, CHASH_ACCESSOR_GUARD, VM_ARGS_SELF_HEAL, CONFIG_SELF_HEAL, **D3_FAILOVER_LIST, RING_MASK_SERIALIZE, HA_DERIVE_PER_CALL, HA_BACKUP_CLAIM_ACCOUNTING** (OZ_DOMAIN_BOOT_DERIVE n/a) | `sha256:56329622bb54981365e008fb1a3a8a769fbc686de59b083e5ed7fa0239520a91` | Same method. |
+
+**Handoff:** these images are the -on13 FINALE build for the Bundle A live proofs (P20-R, phantom
+backup, F9 two-sided, 0026 churn) in a DEDICATED `ring-proof` minikube namespace -- NOT k8s-one,
+NOT sv-federation. Operator image unchanged. See `/mnt/data/work/phase4/ring-on13-liveproofs.md`
+for the full build/proof evidence trail.
