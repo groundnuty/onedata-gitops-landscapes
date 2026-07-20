@@ -4,29 +4,30 @@
 # model -- never sees, and cannot reconcile, any other landscape's own
 # namespace-scoped operator/CRs.
 #
-# IMAGE PIN (design it.335 Finding G + Finding H fix, 2026-07-20):
-# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5d
-# (digest sha256:e59ee42ecf6e500b848d5660877d1cef42dd3e9855f915ce6f04d4a7331eb48a,
-# master 8705a3a -- extends the operator's own ConfigMap-backed
-# overlay.config rendering to carry TWO durable fields the k8s deployment
-# self-heal blocker needs: op_worker's cm_nodes (Finding G, master
-# e430928, alongside the already-durable db_nodes) AND cluster_manager's
-# own worker_num (Finding H, master 8705a3a, discovered live while
-# hands-off-proving Finding G's fix: once a worker actually reaches
-# cluster_manager, cluster_manager_server crashes processing its
-# cluster_init_step_report cast with worker_num undefined -- confirmed
-# live in cm-0's own erlang.log.1). Both close the SAME systemic gap
-# large-dev:/mnt/data/work/phase4/p5-on9-finale.md's Finding G
-# root-caused: onepanel's own service mnesia ctx table (0029/
-# CONFIG_SELF_HEAL's durable source for cm_nodes/db_nodes AND its own
-# cluster_manager-side worker_num sibling) is never populated by this
-# operator's provisioning flow, on any host. Superseded from v0.6.5-p5b
-# (e11f14b, the P5 operator heal batch: heal-budget incident-debounce,
-# per-role ozConnectivity exec-target, secondary-worker heal w/ positive
-# k8s-Ready detection + the 0023 rejoin seam, joinGate built default-off)
-# specifically so a recreated secondary worker gets durable cm_nodes/
-# worker_num connectivity straight from the ConfigMap, no self-heal
-# required. v0.6.5+ REQUIRES patched component images (see
+# IMAGE PIN (design it.337, op-cm-restart-heal session, 2026-07-20):
+# harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5e
+# (digest sha256:4e340dd5ccd5083dd4031e58ef617854fa4c94a1251bb80d2484d67e72f10ef4,
+# master 87c555e -- closes the LAST gap of the deployment self-heal
+# blocker cascade (Finding G/H, p5d above): a crash-looping
+# cluster_manager_server (Finding H, undefined worker_num) is an OTP
+# supervisor-child restart that never touches epmd/the VM, so it never
+# failed the epmd-nodename readinessProbe and cm-0 never restarted to
+# pick up its now-correct overlay.config ConfigMap. p5e adds (1) a REAL
+# cm startupProbe+livenessProbe (self-RPC worker_num check, kubelet
+# restarts the CONTAINER on failure -- confirmed sufficient via a
+# clean-room subPath-refresh test, no pod recreate needed), (2) a
+# checksum/config pod-template annotation (panel+worker overlay only,
+# deliberately excluding manager/topology-count-derived config to avoid
+# reintroducing design it.145's survivor-restart defect), and (3) a
+# managedValuesRenderingVersion status gate so a FUTURE operator-image
+# upgrade alone (no CR spec edit) automatically re-renders an
+# already-deployed release -- the exact manual spec.geo nudge this
+# landscape's own history (p5c/p5d flips below) twice required.
+# Superseded from v0.6.5-p5d (8705a3a, Finding G cm_nodes + Finding H
+# worker_num overlay.config fixes -- both FIXED+PROVEN at the
+# config-rendering layer; p5e is what makes Finding H's fix take LIVE
+# effect hands-off) <- v0.6.5-p5b (e11f14b, the P5 operator heal batch).
+# v0.6.5+ REQUIRES patched component images (see
 # crs/oneprovider-a.yaml / crs/oneprovider-b.yaml / crs/onezone.yaml's
 # IMAGE notes) -- do not pair with stock/vanilla core images.
 #
@@ -66,7 +67,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5d
+          image: harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5e
           command: ["/manager"]
           args:
             - --leader-elect

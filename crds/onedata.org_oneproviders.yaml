@@ -2390,6 +2390,37 @@ spec:
                         - Cold
                         - Live
                         type: string
+                      joinGateEnabled:
+                        default: false
+                        description: |-
+                          joinGateEnabled opts a per-role Composed worker StatefulSet's pods
+                          into the "onedata.org/joined" readinessGate (design it.90
+                          realization §6.3, large-dev:/mnt/data/work/phase4/rolesplit.md):
+                          closes the join-window gap TCP:443 readiness alone cannot catch -- a
+                          freshly (re)provisioned worker pod's listener binds BEFORE
+                          configure_provider/join actually completes, so a TCP-only probe can
+                          report Ready while the node has not yet joined cluster_config. When
+                          true, the vendored chart additionally gates worker pod readiness on
+                          this operator-owned condition; the controller (reconcileWorkerJoinGate,
+                          oneprovider_joingate.go) PATCHes it to match the SAME onepanel
+                          worker-status poll every other per-role heal already reuses -- no
+                          new onepanel call.
+
+                          Applies only to per-role Composed worker pods (isPerRoleTopology);
+                          meaningless/ignored otherwise, since the chart only ever renders this
+                          readinessGate for that shape (see roles.go's BuildOneproviderRoleValues).
+
+                          DEFAULT OFF, deliberately (design it.292, P5 heal batch): the
+                          controller-side PATCH mechanism this field enables is built and
+                          unit/envtest-covered, but has NOT been live-verified against a real
+                          cluster's StatefulSet rollout / PNRA / per-role Service interaction
+                          this session (no cluster access -- unit/envtest only, per this
+                          session's own discipline). Flip to true only after that live
+                          verification -- turning this on for a build where the PATCH loop
+                          were ever broken would leave every gated pod permanently NotReady
+                          (an unset/stuck readinessGate condition never resolves on its own),
+                          exactly the risk roles.go's own prior-session comment named.
+                        type: boolean
                       managerNodes:
                         default: 1
                         description: |-
@@ -2860,6 +2891,39 @@ spec:
                 - PerRoleComposed
                 - Legacy
                 type: string
+              managedValuesRenderingVersion:
+                description: |-
+                  managedValuesRenderingVersion is the operator binary's own
+                  managedValuesRenderingVersion constant (internal/controller/
+                  oneprovider_managed.go) last applied to this managed release --
+                  design it.337 (op-cm-restart-heal session), closing the OTHER half
+                  of the re-render gap managedObservedGeneration alone cannot: that
+                  field only advances when THIS CR's OWN .metadata.generation
+                  changes (a spec edit), so an operator IMAGE upgrade that changes
+                  how values.go/roles.go RENDER an unchanged spec (e.g. this
+                  session's cm liveness probe, or the prior session's worker_num
+                  fix) previously never re-triggered reconcileManagedSpecUpdate for
+                  an already-deployed release at all -- discovered live this session
+                  (op-overlay-cmnodes.md's own NEW OPERATIONAL FINDING): the prior
+                  session had to hand-nudge spec.geo on the CR TWICE, once per
+                  operator-image flip, purely to force a re-render. Compared against
+                  the running binary's own managedValuesRenderingVersion constant on
+                  every managed reconcile, mirroring ManagedObservedGeneration's
+                  comparison exactly (see reconcileManagedSpecUpdate's doc comment):
+                  a mismatch means THIS BINARY renders values differently than
+                  whatever last actually got applied, and the operator re-runs helm
+                  install/upgrade -- catching an operator upgrade automatically, on
+                  the next scheduled reconcile, with zero CR spec edit required.
+                  Deliberately a small hand-bumped integer (not a hash of the
+                  rendered values themselves): computing a real values hash would
+                  require calling fetchCredentials + BuildOneproviderValues on EVERY
+                  reconcile tick just to compare, not just when something changed --
+                  this constant is free to check and only costs anything the ONE
+                  time a maintainer actually bumps it alongside a rendering change
+                  that must reach already-deployed releases. Internal/derived: not
+                  user-settable, and meaningless outside managed mode.
+                format: int32
+                type: integer
               ozConnectivity:
                 description: |-
                   ozConnectivity summarizes reachability between this Oneprovider and
