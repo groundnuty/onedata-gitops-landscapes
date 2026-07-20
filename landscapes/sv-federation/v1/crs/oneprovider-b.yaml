@@ -29,24 +29,27 @@ metadata:
   namespace: sv-federation
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-# GENERATION-BUMP NUDGE (design it.335/Finding G proof, 2026-07-20): the
-# cm_nodes overlay.config fix (onedata-operator@e430928) is an
-# operator-code-only change -- it does not touch this CR's spec. Live
-# session discovered that reconcileManagedSpecUpdate
-# (internal/controller/oneprovider_managed.go) only re-renders/upgrades a
-# managed release's helm values when metadata.generation advances past
-# status.managedObservedGeneration, so a bare operator-image flip alone
-# does NOT retroactively re-render an already-deployed release. spec.geo
-# below is added SOLELY to bump generation and force that re-render --
-# semantically inert (only feeds onepanel's cosmetic geolocation
-# metadata, never consulted by cluster health/serving/membership) and
-# safe to leave in place afterward.
+# GENERATION-BUMP NUDGE (design it.335 Finding G + Finding H proof,
+# 2026-07-20): the cm_nodes/worker_num overlay.config fixes
+# (onedata-operator@e430928, @8705a3a) are operator-code-only changes --
+# they do not touch this CR's spec. Live session discovered that
+# reconcileManagedSpecUpdate (internal/controller/oneprovider_managed.go)
+# only re-renders/upgrades a managed release's helm values when
+# metadata.generation advances past status.managedObservedGeneration, so a
+# bare operator-image flip alone does NOT retroactively re-render an
+# already-deployed release. spec.geo below is added SOLELY to bump
+# generation and force that re-render -- semantically inert (only feeds
+# onepanel's cosmetic geolocation metadata, never consulted by cluster
+# health/serving/membership) and safe to leave in place afterward. Bumped
+# a second time (Finding H, "1"/"1") after the worker_num fix landed --
+# any value change works, this one just keeps it visibly distinct from
+# Finding G's own "0"/"0" bump in git history.
 spec:
   name: "provider-b"
   adminEmail: "sv-federation-admin@example.com"
   geo:
-    latitude: "0"
-    longitude: "0"
+    latitude: "1"
+    longitude: "1"
   onezoneRef:
     name: zone
     endpoint: zone-onezone.sv-federation.svc.cluster.local
