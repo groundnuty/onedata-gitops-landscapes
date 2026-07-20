@@ -153,3 +153,43 @@ image `harbor.k8s-one-onedata.dedyn.io:30003/dev/onedata-operator:v0.6.5-p5` (ma
 digest `sha256:3be1dcfbb0673e016940ad7248e58f680c57af1be0bc4957d4aca58857f6d064`, also pushed to
 `docker.io/groundnuty/onedata-operator:v0.6.5-p5`) re-pinned in the same landscape's operator
 deployment.
+
+## P5 FINALE consolidated images (it.30x, 2026-07-20)
+
+Supersedes the P5 close-out consolidated build -- adds patch 0024 (`VM_ARGS_SELF_HEAL`,
+onepanel, canonical `94fa33fc`) on top of the identical 0012-0023 lineage. Same it.230 dated
+vanilla base snapshots (`oneprovider-dev:develop-20260718` / `onezone-dev:develop-20260718`, no
+base-image change). All 4 legs (op_worker, oz_worker, cluster_manager, onepanel) rebuilt fresh
+under the same `flock build.lock` mechanism for epoch consistency; only onepanel's 3 beams
+(`onepanel_vm.beam`, `service_cluster_worker.beam`, `service_cluster_manager.beam`) actually
+changed content (byte-diff confirmed against the P5 close-out artifacts). All 14 changed/carried
+beams beam-load-verified (`code:load_file/1` inside the built image); both images boot-A/B
+smoke-tested clean against the same base snapshot. Pushed images round-trip-verified: local
+image removed, freshly `docker pull`-ed from Harbor, `maybe_self_heal_identity` marker confirmed
+present in the pulled artifact (not just the pre-push local build).
+
+| Date | Image | Base | Patch composition | Image ID | Digest | Validated by |
+|---|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260720-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024` | `oneprovider-dev:develop-20260718` (it.230 dated vanilla) | 0012-0023 (unchanged from P5 close-out) + **0024 NEW** | `sha256:91778dc341de…` | `sha256:a20cc8f14ea30bed5f2cebc3675e5c2a7f08ea5b3222133527b170393490d739` | Beam-load OK (14/14 beams); boot A/B clean; `maybe_self_heal_identity` marker present in `onepanel_vm.beam`/`service_cluster_manager.beam`/`service_cluster_worker.beam`; round-tripped through Harbor (rmi + fresh pull) with marker intact. |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260720-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024` | `onezone-dev:develop-20260718` (it.230 dated vanilla) | 0012-0023 (unchanged) + **0024 NEW** | `sha256:9af956181081…` | `sha256:5b2a4905cc0f4d9d6b443cdad9f30ec2766a1af93bc2e6ea5fbe907956143ef4` | Same verification method; marker confirmed present in `onepanel_vm.beam` (oz_panel side); round-tripped through Harbor. |
+
+## Flags-ON overlay images (P5 FINALE, the `-on8` set)
+
+Overlay `FROM` the P5 FINALE consolidated snapshots above, baking **8** flags ON -- the -on7
+seven PLUS `VM_ARGS_SELF_HEAL` (0024, the fix for Finding B / the vm.args reset-on-retry race
+that blocked P5 close-out Proofs 2/3). `VM_ARGS_SELF_HEAL` delivered via `/etc/default/op_panel`
+/ `/etc/default/oz_panel` ONLY (not `op_worker`/`cluster_manager`) -- per `patch-0024.md` sec 6
+note 5, the flag is consulted by `onepanel_vm`/`service_cluster_*` code running INSIDE the
+op_panel/oz_panel beam itself. OFF (unchanged): `DISTERL_TLS`, `RTRANSFER_CA_FILTER`,
+`HELPER_CACHE_REVALIDATE`.
+
+| Date | Image | Base | Flags ON | Flags OFF | Image ID | Digest | Validated by |
+|---|---|---|---|---|---|---|---|
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260720-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024-on8` | the P5 FINALE oneprovider row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `OZ_DOMAIN_BOOT_DERIVE`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD`, `VM_ARGS_SELF_HEAL` | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE` | `sha256:92303265d629…` | `sha256:19525dd7490ba135e1f204fae31908288d6f6954799f463674d35d48e092f3ae` | `nodetool rpcterms os getenv` against the live op_panel beam (FQDN-hostname `docker run`, node name `onepanel@<fqdn>`, cookie `cluster_node`): all 4 op_panel flags (`REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `REJOIN_NODES`, `VM_ARGS_SELF_HEAL`) `"true"`, all other 7 flags `false` -- exact set confirmed. `/etc/default/{op_worker,cluster_manager}` file contents verified unchanged from -on7 (`OZ_DOMAIN_BOOT_DERIVE`/`DURABLE_CM_BARRIER`/`NODE_DOWN_GUARD`/`CHASH_ACCESSOR_GUARD`). |
+| 2026-07-20 | `harbor.k8s-one-onedata.dedyn.io:30003/dev/onezone-dev:develop-20260720-p0012.0014.0015.0016.0018.0019.0019c.0022.0023.0024-on8` | the P5 FINALE onezone row above | `REGISTERED_BOOT_IDEMPOTENCE`, `F12_HOSTS_FIX`, `NODE_DOWN_GUARD`, `REJOIN_NODES`, `DURABLE_CM_BARRIER`, `CHASH_ACCESSOR_GUARD`, `VM_ARGS_SELF_HEAL` (`OZ_DOMAIN_BOOT_DERIVE` not applicable) | `DISTERL_TLS`, `RTRANSFER_CA_FILTER`, `HELPER_CACHE_REVALIDATE` | `sha256:a6878bd9fdac…` | `sha256:8292c52773b213a2c20a023acc047044b7b341aad86082a612fbabc03387b784` | Same verification method, oz_panel beam: all 4 flags `"true"`, all others `false`. `/etc/default/{oz_worker,cluster_manager}` verified unchanged from -on7. |
+
+**Handoff:** these two `-on8` images plus the operator build from master `7a23cce` (the P5
+polish batch, Findings A/C/D) are what P5 FINALE re-pins into `sv-federation/v1`
+(`crs/oneprovider-b.yaml` + `operator/deployment.yaml` only -- provider-a and onezone stay
+untouched per the isolation requirement) for the hands-off Proof 2/3 re-run. See
+`/mnt/data/work/phase4/p5-final.md` for the full build/proof evidence trail.

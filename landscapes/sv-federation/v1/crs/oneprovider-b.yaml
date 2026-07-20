@@ -5,6 +5,12 @@
 # federation proof exercises BOTH directions (write via A read via B,
 # then write via B read via A).
 #
+# P5 FINALE FLIP (it.30x, 2026-07-20): re-pinned again to the -on8 image
+# (the -on7 seven + VM_ARGS_SELF_HEAL, patch 0024 -- the fix for Finding B,
+# the vm.args reset-on-retry race that blocked the P5 close-out session's
+# Proofs 2/3). See images/SNAPSHOTS.md "P5 FINALE" sections for the full
+# build/verification evidence and phase4/p5-final.md for the proof results.
+#
 # P5 CLOSE-OUT FLIP (it.295-closeout, 2026-07-19): provider-b is the
 # standing live repro of the pre-0023 od_error_node_already_in_cluster
 # defect (federation-v1.md Gate 5) -- workers stuck since the
@@ -38,7 +44,7 @@ spec:
     trustIssuerCA: true
   managed:
     enabled: true
-    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260719-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023-on7
+    image: harbor.k8s-one-onedata.dedyn.io:30003/dev/oneprovider-dev:develop-20260720-p0012.0013.0014.0015.0016.0017.0018.0019.0019c.0020.0022.0023.0024-on8
     imagePullSecrets:
       - harbor-dev-pull
     storageVolume:
